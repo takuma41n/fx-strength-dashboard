@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FX通貨強弱・方向性ダッシュボード</title>
+<style>
+/* ------------------------------------------------------------------
+   カラートークン
+   既存の us-econ-dashboard と同じサーフェス/インクを踏襲。
+   強弱スケールは diverging blue↔red（中立はグレー）。緑/赤は
+   前日比などのデルタ表示にのみ使い、方向性の主軸には使わない
+   （赤緑は色覚特性で最も分離しにくい組み合わせのため）。
+   ------------------------------------------------------------------ */
+:root {
+  color-scheme: light;
+  --page:            #f9f9f7;
+  --surface:         #fcfcfb;
+  --text-primary:    #0b0b0b;
+  --text-secondary:  #52514e;
+  --text-muted:      #898781;
+  --grid:            #e1e0d9;
+  --axis:            #c3c2b7;
+  --border:          rgba(11,11,11,0.10);
+  --hover:           rgba(11,11,11,0.04);
+  --pos:             #2a78d6;  /* 強い / 買い */
+  --neg:             #e34948;  /* 弱い / 売り */
+  --mid:             #f0efec;  /* 中立 */
+  --delta-up:        #006300;
+  --delta-down:      #d03b3b;
+  --warning:         #fab219;
+  --track:           #cde2fb;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page:           #0d0d0d;
+    --surface:        #1a1a19;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --axis:           #383835;
+    --border:         rgba(255,255,255,0.10);
+    --hover:          rgba(255,255,255,0.06);
+    --pos:            #3987e5;
+    --neg:            #e66767;
+    --mid:            #383835;
+    --delta-up:       #0ca30c;
+    --delta-down:     #d03b3b;
+    --track:          #184f95;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page:           #0d0d0d;
+  --surface:        #1a1a19;
+  --text-primary:   #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted:     #898781;
+  --grid:           #2c2c2a;
+  --axis:           #383835;
+  --border:         rgba(255,255,255,0.10);
+  --hover:          rgba(255,255,255,0.06);
+  --pos:            #3987e5;
+  --neg:            #e66767;
+  --mid:            #383835;
+  --delta-up:       #0ca30c;
+  --delta-down:     #d03b3b;
+  --track:          #184f95;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--page);
+  color: var(--text-primary);
+  font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 28px 20px 80px; }
+
+/* --- ヘッダ --- */
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 16px; margin-bottom: 6px; }
+h1 { font-size: 21px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+.sub { color: var(--text-secondary); font-size: 13px; }
+.badge {
+  font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--text-secondary); white-space: nowrap;
+}
+.spacer { flex: 1 1 auto; }
+button.ghost {
+  font: inherit; font-size: 12.5px; color: var(--text-secondary); cursor: pointer;
+  background: transparent; border: 1px solid var(--border); border-radius: 7px; padding: 4px 10px;
+}
+button.ghost:hover { background: var(--hover); }
+
+section { margin-top: 34px; }
+h2 { font-size: 15px; font-weight: 600; margin: 0 0 3px; }
+.note { color: var(--text-muted); font-size: 12.5px; margin: 0 0 14px; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 18px;
+}
+
+/* --- ヒーロー --- */
+.hero { display: grid; grid-template-columns: minmax(280px, 1.3fr) 1fr; gap: 18px; }
+@media (max-width: 760px) { .hero { grid-template-columns: 1fr; } }
+.hero-label { font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+.hero-value { font-size: 48px; font-weight: 600; line-height: 1.1; margin: 2px 0 4px; letter-spacing: -0.02em; }
+.hero-sub { font-size: 12.5px; color: var(--text-muted); }
+
+.meter-track {
+  position: relative; height: 8px; border-radius: 999px; margin: 16px 0 6px;
+  background: linear-gradient(to right, var(--neg), var(--mid) 50%, var(--pos));
+}
+.meter-mark {
+  position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%;
+  transform: translate(-50%, -50%); background: var(--text-primary);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.meter-scale { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--text-muted); }
+
+.comp-row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 13px; border-bottom: 1px solid var(--grid); }
+.comp-row:last-child { border-bottom: 0; }
+.comp-row span:last-child { font-variant-numeric: tabular-nums; }
+
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.stat { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.stat .k { font-size: 12px; color: var(--text-secondary); }
+.stat .v { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
+
+/* --- 通貨強弱バー --- */
+.bars { display: flex; flex-direction: column; gap: 2px; }
+.bar-row {
+  display: grid; grid-template-columns: 46px 1fr 96px 114px;
+  align-items: center; gap: 12px; padding: 5px 6px; border-radius: 8px; cursor: default;
+}
+.bar-row:hover { background: var(--hover); }
+@media (max-width: 720px) { .bar-row { grid-template-columns: 40px 1fr 74px; } .bar-row .spark-cell { display: none; } }
+.ccy { font-weight: 600; font-size: 14px; }
+.bar-track { position: relative; height: 24px; }
+.bar-axis { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--axis); }
+.bar-fill { position: absolute; top: 3px; height: 18px; }
+.bar-fill.p { border-radius: 0 4px 4px 0; }
+.bar-fill.n { border-radius: 4px 0 0 4px; }
+.bar-val { font-variant-numeric: tabular-nums; font-size: 13.5px; text-align: right; font-weight: 600; }
+.bar-delta { font-variant-numeric: tabular-nums; font-size: 11.5px; color: var(--text-muted); text-align: right; }
+
+/* --- ペアカード --- */
+.pair-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: 14px; }
+.pair-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 15px 16px; }
+.pair-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.pair-name { font-size: 15px; font-weight: 600; }
+.pair-price { font-size: 12.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.pair-bias { display: flex; align-items: center; gap: 8px; margin: 9px 0 2px; }
+.bias-chip { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+.bias-text { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+.bias-score { font-size: 12.5px; color: var(--text-secondary); font-variant-numeric: tabular-nums; margin-left: auto; }
+.conv { margin: 10px 0 4px; }
+.conv-head { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--text-muted); }
+.conv-track { height: 5px; border-radius: 999px; background: var(--track); overflow: hidden; margin-top: 4px; }
+.conv-fill { height: 100%; background: var(--pos); border-radius: 999px; }
+.drivers { margin-top: 10px; border-top: 1px solid var(--grid); padding-top: 9px; }
+.driver { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-secondary); padding: 1.5px 0; }
+.driver b { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text-primary); }
+.pair-flag { font-size: 11.5px; color: var(--text-muted); margin-top: 8px; display: flex; gap: 6px; align-items: flex-start; }
+
+/* --- ヒートマップ --- */
+table.grid { width: 100%; border-collapse: separate; border-spacing: 2px; font-size: 13px; }
+table.grid th { font-weight: 600; font-size: 12px; color: var(--text-secondary); text-align: center; padding: 4px; }
+table.grid th.row-h { text-align: left; width: 58px; color: var(--text-primary); }
+table.grid td { text-align: center; padding: 9px 4px; border-radius: 6px; font-variant-numeric: tabular-nums; }
+table.grid td.na { color: var(--text-muted); background: transparent; border: 1px dashed var(--grid); font-size: 11.5px; }
+
+/* --- 乖離パネル --- */
+.div-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(238px, 1fr)); gap: 14px; }
+.div-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 13px 15px; }
+.div-head { display: flex; justify-content: space-between; align-items: baseline; }
+.div-name { font-weight: 600; font-size: 13.5px; }
+.div-val { font-size: 13px; font-variant-numeric: tabular-nums; font-weight: 600; }
+.div-legend { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; font-variant-numeric: tabular-nums; }
+.div-verdict { font-size: 11.5px; margin-top: 5px; color: var(--text-secondary); }
+
+/* --- テーブルビュー --- */
+table.data { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+table.data th, table.data td { text-align: right; padding: 6px 9px; border-bottom: 1px solid var(--grid); font-variant-numeric: tabular-nums; }
+table.data th:first-child, table.data td:first-child { text-align: left; font-variant-numeric: normal; }
+table.data th { color: var(--text-secondary); font-weight: 600; font-size: 12px; }
+.hidden { display: none; }
+
+.src-ok { color: var(--delta-up); }
+.src-stale { color: var(--warning); }
+.src-fail { color: var(--delta-down); }
+
+details { border-top: 1px solid var(--grid); padding-top: 14px; margin-top: 34px; }
+summary { cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--text-secondary); }
+details .body { font-size: 13px; color: var(--text-secondary); max-width: 74ch; }
+details h3 { font-size: 13.5px; margin: 18px 0 4px; color: var(--text-primary); }
+details code { font-size: 12px; background: var(--hover); padding: 1px 5px; border-radius: 4px; }
+
+#tooltip {
+  position: fixed; pointer-events: none; z-index: 60; opacity: 0; transition: opacity .1s;
+  background: var(--surface); color: var(--text-primary); border: 1px solid var(--border);
+  border-radius: 8px; padding: 7px 10px; font-size: 12.5px; line-height: 1.5;
+  box-shadow: 0 4px 16px rgba(0,0,0,.14); max-width: 260px;
+}
+#tooltip.on { opacity: 1; }
+#tooltip b { font-variant-numeric: tabular-nums; }
+
+.scroll-x { overflow-x: auto; }
+.loading { color: var(--text-muted); padding: 40px 0; text-align: center; }
+.err { color: var(--delta-down); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>FX通貨強弱・方向性ダッシュボード</h1>
+  <span class="badge" id="phase-badge">Phase 1</span>
+  <span class="spacer"></span>
+  <button class="ghost" id="theme-btn" type="button">テーマ切替</button>
+</header>
+<p class="sub" id="header-sub">読み込み中…</p>
+
+<div id="app"><p class="loading">data.json を読み込んでいます…</p></div>
+
+<details>
+  <summary>この指標の読み方と計算方法</summary>
+  <div class="body">
+    <h3>何を見ているか</h3>
+    <p>USD / EUR / JPY / GBP / AUD / CHF の6通貨をそれぞれスコア化し、その差からペアの方向性を出しています。
+    メイン7ペアはこの6通貨で閉じるので、通貨のスコアが決まればペアの方向は自動的に決まります。</p>
+
+    <h3>「水準」ではなく「変化」で見る</h3>
+    <p>数日〜2週間のスイングで為替を動かすのは金利の絶対水準ではなく変化です。
+    そのため全指標を「今いくつか」ではなく「直近どれだけ動いたか」で評価し、
+    直近1年のレンジに対する z-score に変換してから ±100 に圧縮しています。</p>
+
+    <h3>スコアは相対値</h3>
+    <p>各柱は6通貨の平均が必ずゼロになるよう揃えています。全通貨の金利が同時に上がっても
+    誰も強くならないためです。したがってスコアは「他の5通貨と比べてどうか」を意味します。</p>
+
+    <h3>確信度はスコアと別物</h3>
+    <p>5本柱すべてが同じ方向を向いたシグナルと、1本の柱だけで押し切っているシグナルは意味が違います。
+    確信度は「柱の符号の一致度 × スコアの大きさ」で、スコアとは独立に表示しています。</p>
+
+    <h3>中立ゾーンを広く取っている理由</h3>
+    <p>バックテストすると翌10営業日の的中率はスコアの強さと単調に上がりました
+    （|スコア差| ≧15 で 51.2%、≧30 で 53.9%、≧45 で 58.2%、≧60 で 60.6%）。
+    一方で閾値を設けず弱いシグナルまで拾うと 46.2% と50%を割ります。
+    つまり弱いスコアは無情報どころか逆効果なので、±30未満は「シグナルなし」として中立に倒しています。
+    なお日次サンプルは重複が大きく、高閾値の的中率は件数が少ないため統計的に有意とまでは言えません。</p>
+
+    <h3>金利差 vs 為替の乖離</h3>
+    <p>柱①（金利）と柱④（リスク）は市場が<em>既に織り込んでいるもの</em>、
+    柱②（インフレ）と柱③（景気）は<em>これから織り込まれるもの</em>です。
+    乖離パネルは前者と価格のズレを見ています。プラスなら金利差の動き以上に為替が動いている（走りすぎ）、
+    マイナスなら金利差が動いたのに為替が追随していない（出遅れ）ことを示します。</p>
+
+    <h3>Phase 1 の限界</h3>
+    <p>現在は日次で取れる市場データのみで、全体設計のウェイトの73%を実装しています。
+    インフレ（12%）と景気・雇用（15%）の柱は Phase 2 で各国の公式統計APIから追加します。
+    CHF だけは2年国債の無料日次ソースが全滅していたため SARON 6ヶ月（短期金利）で代用しており、
+    他通貨よりも金利感応度が低く出ます。</p>
+
+    <h3>免責</h3>
+    <p>機械的に計算した参考値であり、投資助言ではありません。エントリーの判断は各自でお願いします。</p>
+  </div>
+</details>
+
+</div>
+<div id="tooltip"></div>
+
+<script>
+"use strict";
+
+const $ = (sel, root) => (root || document).querySelector(sel);
+const fmt = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v)) ? "—"
+  : (v >= 0 ? "+" : "") + Number(v).toFixed(d);
+const abs = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v)) ? "—" : Number(v).toFixed(d);
+/* 円ペアは3桁、それ以外は5桁。取引ツールの表示に合わせる */
+const px = (v, quote) => Number(v).toFixed(quote === "JPY" ? 3 : 5);
+
+/* diverging スケール: 中立グレーから両極へ color-mix で等間隔に伸ばす。
+   セルの上に数値を載せるヒートマップは wash 側（8〜58%）に留める。
+   58%を超えるとダークモードの白文字が 4.5:1 を割るため。
+   バーやチップは文字を載せない細いマークなので濃い側まで使う。 */
+function divColor(value, max, minPct, spanPct) {
+  const t = Math.min(1, Math.abs(value) / max);
+  const pole = value >= 0 ? "var(--pos)" : "var(--neg)";
+  const pct = ((minPct ?? 18) + t * (spanPct ?? 82)).toFixed(1);
+  return `color-mix(in oklab, ${pole} ${pct}%, var(--mid))`;
+}
+const washColor = (v, max) => divColor(v, max, 8, 50);
+
+/* --- ツールチップ --- */
+const tip = $("#tooltip");
+function bindTip(el, html) {
+  el.addEventListener("pointerenter", () => { tip.innerHTML = html; tip.classList.add("on"); });
+  el.addEventListener("pointermove", (e) => {
+    const pad = 14;
+    let x = e.clientX + pad, y = e.clientY + pad;
+    const r = tip.getBoundingClientRect();
+    if (x + r.width > innerWidth - 8) x = e.clientX - r.width - pad;
+    if (y + r.height > innerHeight - 8) y = e.clientY - r.height - pad;
+    tip.style.left = x + "px"; tip.style.top = y + "px";
+  });
+  el.addEventListener("pointerleave", () => tip.classList.remove("on"));
+  el.tabIndex = 0;
+  el.addEventListener("focus", () => {
+    tip.innerHTML = html; tip.classList.add("on");
+    const b = el.getBoundingClientRect();
+    tip.style.left = b.left + "px"; tip.style.top = (b.bottom + 6) + "px";
+  });
+  el.addEventListener("blur", () => tip.classList.remove("on"));
+}
+
+/* 直近 n 営業日に絞る。120点を88pxに詰めると線が団子になって読めない。
+   60営業日＝約3か月で、スイングの時間軸に対して十分な文脈になる。 */
+const recent = (arr, n = 60) => arr.slice(-n);
+
+/* --- スパークライン（ゼロ基準の diverging エリア） --- */
+function sparkline(values, opts) {
+  const o = Object.assign({ w: 88, h: 26, zero: true, pad: 2 }, opts || {});
+  const vals = values.filter(v => v !== null && !Number.isNaN(v));
+  if (vals.length < 2) return "";
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  let min = o.zero ? Math.min(lo, 0) : lo;
+  let max = o.zero ? Math.max(hi, 0) : hi;
+  if (max - min < 1e-9) { max += 0.5; min -= 0.5; }
+  const X = i => o.pad + i * (o.w - 2 * o.pad) / (values.length - 1);
+  const Y = v => o.pad + (max - v) * (o.h - 2 * o.pad) / (max - min);
+  const zy = Y(0);
+  const pts = values.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
+  const areaPos = `M ${X(0).toFixed(1)},${zy.toFixed(1)} L ${pts.replace(/ /g, " L ")} L ${X(values.length - 1).toFixed(1)},${zy.toFixed(1)} Z`;
+  const uid = "sp" + Math.random().toString(36).slice(2, 9);
+  return `<svg width="${o.w}" height="${o.h}" viewBox="0 0 ${o.w} ${o.h}" aria-hidden="true">
+    <defs>
+      <clipPath id="${uid}u"><rect x="0" y="0" width="${o.w}" height="${Math.max(0, zy).toFixed(1)}"/></clipPath>
+      <clipPath id="${uid}d"><rect x="0" y="${Math.max(0, zy).toFixed(1)}" width="${o.w}" height="${Math.max(0, o.h - zy).toFixed(1)}"/></clipPath>
+    </defs>
+    <path d="${areaPos}" fill="var(--pos)" opacity="0.10" clip-path="url(#${uid}u)"/>
+    <path d="${areaPos}" fill="var(--neg)" opacity="0.10" clip-path="url(#${uid}d)"/>
+    <line x1="0" y1="${zy.toFixed(1)}" x2="${o.w}" y2="${zy.toFixed(1)}" stroke="var(--grid)" stroke-width="1"/>
+    <polyline points="${pts}" fill="none" stroke="var(--pos)" stroke-width="2"
+      stroke-linejoin="round" stroke-linecap="round" clip-path="url(#${uid}u)"/>
+    <polyline points="${pts}" fill="none" stroke="var(--neg)" stroke-width="2"
+      stroke-linejoin="round" stroke-linecap="round" clip-path="url(#${uid}d)"/>
+  </svg>`;
+}
+
+/* --- レンダリング --- */
+function render(data, narrative) {
+  const s = data.scores;
+  if (!s) throw new Error("data.json にスコアがありません。score.py を実行してください。");
+
+  const CCY = ["USD", "EUR", "JPY", "GBP", "AUD", "CHF"];
+  const order = CCY.slice().sort((a, b) => s.currencies[b].score - s.currencies[a].score);
+  const strongest = order[0], weakest = order[order.length - 1];
+  const maxAbs = Math.max(50, ...CCY.map(c => Math.abs(s.currencies[c].score)));
+
+  $("#phase-badge").textContent = `Phase ${data.phase} · 実装ウェイト ${Math.round(s.implemented_weight * 100)}%`;
+  const gen = new Date(data.generated_at);
+  $("#header-sub").textContent =
+    `基準日 ${s.as_of} ／ データ更新 ${gen.toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" })}`;
+
+  const out = [];
+
+  /* ===== ヒーロー: リスクレジーム ===== */
+  const rg = s.regime;
+  const markPct = ((rg.value + 1) / 2 * 100).toFixed(1);
+  out.push(`<section><div class="hero">
+    <div class="card">
+      <div class="hero-label">リスクレジーム</div>
+      <div class="hero-value">${rg.label}</div>
+      <div class="hero-sub">合成スコア ${fmt(rg.value, 2)}（−1 = リスクオフ ／ +1 = リスクオン）</div>
+      <div class="meter-track"><div class="meter-mark" style="left:${markPct}%"></div></div>
+      <div class="meter-scale"><span>リスクオフ</span><span>中立</span><span>リスクオン</span></div>
+      <div style="margin-top:14px">
+        ${Object.entries(rg.components).map(([k, v]) =>
+          `<div class="comp-row"><span>${k}</span><span>${fmt(v, 2)}</span></div>`).join("")}
+      </div>
+    </div>
+    <div>
+      <div class="stat-grid">
+        <div class="stat"><div class="k">最強通貨</div><div class="v">${strongest}</div>
+          <div class="hero-sub">${fmt(s.currencies[strongest].score)}</div></div>
+        <div class="stat"><div class="k">最弱通貨</div><div class="v">${weakest}</div>
+          <div class="hero-sub">${fmt(s.currencies[weakest].score)}</div></div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="hero-label">Claude の見立て</div>
+        ${narrative
+          ? `<div class="hero-sub" style="margin-top:6px">${narrative.as_of} 時点</div>
+             <p style="font-size:13px;margin:8px 0 0;color:var(--text-secondary)">${narrative.text}</p>`
+          : `<p style="font-size:13px;margin:8px 0 0;color:var(--text-muted)">
+             まだ生成されていません。中銀発言・要人コメント・政治イベントを加味した定性補正は
+             Phase 3 で <code>narrative.json</code> として追加されます。</p>`}
+      </div>
+    </div>
+  </div></section>`);
+
+  /* ===== 通貨強弱 ===== */
+  out.push(`<section>
+    <h2>通貨強弱</h2>
+    <p class="note">6通貨の平均がゼロになるよう揃えた相対スコア。右のスパークラインは直近60営業日の推移。
+      <button class="ghost" data-toggle="tbl-ccy" type="button" style="margin-left:6px">表で見る</button></p>
+    <div class="card"><div class="bars">`);
+  for (const c of order) {
+    const info = s.currencies[c];
+    const w = Math.abs(info.score) / maxAbs * 50;
+    const side = info.score >= 0 ? "p" : "n";
+    const style = info.score >= 0
+      ? `left:50%;width:${w}%;`
+      : `right:50%;width:${w}%;`;
+    const hist = s.history[c] || [];
+    const rate = info.rate;
+    const tipHtml = `<b>${c}</b> スコア <b>${fmt(info.score)}</b><br>
+      金利・政策期待 <b>${fmt(info.pillars.rates)}</b><br>
+      リスクレジーム <b>${fmt(info.pillars.risk)}</b><br>
+      固有要因 <b>${fmt(info.pillars.idio)}</b>${info.idio_note ? "（" + info.idio_note + "）" : ""}<br>
+      <span style="color:var(--text-muted)">${rate.label} ${abs(rate.value, 3)}%（20日 ${fmt(rate.d20, 0)}bp）</span>`;
+    out.push(`<div class="bar-row" data-tip="${encodeURIComponent(tipHtml)}">
+      <div class="ccy">${c}${rate.proxy ? '<span style="color:var(--text-muted);font-weight:400">*</span>' : ""}</div>
+      <div class="bar-track"><div class="bar-axis"></div>
+        <div class="bar-fill ${side}" style="${style}background:${info.score >= 0 ? "var(--pos)" : "var(--neg)"}"></div></div>
+      <div>
+        <div class="bar-val">${fmt(info.score)}</div>
+        <div class="bar-delta">前日 ${fmt(info.d1)} ／ 前週 ${fmt(info.d5)}</div>
+      </div>
+      <div class="spark-cell">${sparkline(recent(hist), { w: 110, h: 28 })}</div>
+    </div>`);
+  }
+  const hasProxy = CCY.some(c => s.currencies[c].rate.proxy);
+  out.push(`</div>${hasProxy ? '<p class="note" style="margin:12px 0 0">* CHF は2年国債の無料日次ソースが全滅したため SARON 6ヶ月で代用。デュレーションが短いぶん金利感応度が低く出ます</p>' : ""}</div>
+    <div class="hidden scroll-x" id="tbl-ccy"><table class="data">
+      <thead><tr><th>通貨</th><th>スコア</th><th>前日比</th><th>前週比</th>
+        <th>金利</th><th>リスク</th><th>固有</th><th>参照金利</th><th>20日変化</th></tr></thead>
+      <tbody>${order.map(c => {
+        const i = s.currencies[c];
+        return `<tr><td>${c}</td><td>${fmt(i.score)}</td><td>${fmt(i.d1)}</td><td>${fmt(i.d5)}</td>
+          <td>${fmt(i.pillars.rates)}</td><td>${fmt(i.pillars.risk)}</td><td>${fmt(i.pillars.idio)}</td>
+          <td>${i.rate.label} ${abs(i.rate.value, 3)}%</td><td>${fmt(i.rate.d20, 0)}bp</td></tr>`;
+      }).join("")}</tbody></table></div>
+  </section>`);
+
+  /* ===== ペア方向性 ===== */
+  const pairOrder = Object.keys(s.pairs).sort((a, b) =>
+    Math.abs(s.pairs[b].score) - Math.abs(s.pairs[a].score));
+  out.push(`<section>
+    <h2>ペア方向性</h2>
+    <p class="note">スコア差の絶対値が大きい順。±30未満は「シグナルなし」として中立に倒しています。カード下部の数値は柱ごとの「基軸通貨 − 決済通貨」なので、通貨単体のスコア（±100）より広い範囲を取ります。</p>
+    <div class="pair-grid">`);
+  for (const name of pairOrder) {
+    const p = s.pairs[name];
+    const neutral = p.bias === 0;
+    // 中立チップは --mid だとカード面に溶けて描画漏れに見えるので軸グレーを使う
+    const chip = neutral ? "var(--axis)" : divColor(p.score, 60);
+    const drivers = p.drivers.slice(0, 3).map(d =>
+      `<div class="driver"><span>${d.label}</span><b>${fmt(d.contrib)}</b></div>`).join("");
+    out.push(`<div class="pair-card">
+      <div class="pair-head"><span class="pair-name">${name}</span>
+        <span class="pair-price">${px(p.price, p.quote)} <span style="color:${p.chg20 >= 0 ? "var(--delta-up)" : "var(--delta-down)"}">${fmt(p.chg20, 2)}%</span> <span style="color:var(--text-muted)">20日</span></span></div>
+      <div class="pair-bias">
+        <span class="bias-chip" style="background:${chip}"></span>
+        <span class="bias-text">${p.bias_label}</span>
+        <span class="bias-score">スコア差 ${fmt(p.score)}</span>
+      </div>
+      <div class="conv">
+        <div class="conv-head"><span>確信度 ${p.conviction_label}</span><span>${p.conviction.toFixed(2)}</span></div>
+        <div class="conv-track"><div class="conv-fill" style="width:${(p.conviction * 100).toFixed(0)}%"></div></div>
+      </div>
+      <div class="drivers">${drivers}
+        <div class="driver" style="margin-top:5px;color:var(--text-muted)">
+          <span>金利差 ${fmt(p.rate_diff, 2)}%</span><b style="color:var(--text-muted)">${fmt(p.rate_diff_d20, 0)}bp / 20日</b></div>
+      </div>
+      ${p.proxy_rate ? '<div class="pair-flag">* CHF は SARON 6ヶ月で代用。金利感応度が他通貨より低く出ます</div>' : ""}
+    </div>`);
+  }
+  out.push(`</div></section>`);
+
+  /* ===== 柱別ヒートマップ ===== */
+  const pillars = Object.keys(s.pillar_weights);
+  const future = [["inflation", "インフレ"], ["growth", "景気・雇用"]];
+  out.push(`<section>
+    <h2>柱別スコア</h2>
+    <p class="note">行が通貨、列が柱。数値は6通貨平均をゼロに揃えた相対値。
+      点線の列は Phase 2 で追加予定です。</p>
+    <div class="card scroll-x"><table class="grid">
+      <thead><tr><th class="row-h"></th>
+        ${pillars.map(p => `<th>${s.pillar_labels[p]}<br><span style="color:var(--text-muted);font-weight:400">${Math.round(s.pillar_weights[p] * 100)}%</span></th>`).join("")}
+        ${future.map(([k, l]) => `<th style="color:var(--text-muted)">${l}<br><span style="font-weight:400">${Math.round((k === "inflation" ? 0.12 : 0.15) * 100)}%</span></th>`).join("")}
+        <th>合計</th></tr></thead>
+      <tbody>${order.map(c => {
+        const i = s.currencies[c];
+        const cells = pillars.map(p => {
+          const v = i.pillars[p];
+          const t = `<b>${c}</b> ／ ${s.pillar_labels[p]}<br>相対スコア <b>${fmt(v)}</b>`;
+          return `<td data-tip="${encodeURIComponent(t)}" style="background:${washColor(v, 70)}">${fmt(v, 0)}</td>`;
+        }).join("");
+        return `<tr><th class="row-h">${c}</th>${cells}
+          ${future.map(() => '<td class="na">Phase 2</td>').join("")}
+          <td style="background:${washColor(i.score, maxAbs)};font-weight:600">${fmt(i.score, 0)}</td></tr>`;
+      }).join("")}</tbody>
+    </table></div>
+  </section>`);
+
+  /* ===== 乖離パネル ===== */
+  out.push(`<section>
+    <h2>金利差 vs 為替の乖離</h2>
+    <p class="note">直近60営業日。プラスは金利差の動き以上に為替が走っている、
+      マイナスは金利差が動いたのに為替が追随していない（出遅れ）ことを示します。
+      いずれも「ファンダと価格のどちらかが間違っている」サインなので、確信度と併せて読んでください。</p>
+    <div class="div-grid">`);
+  for (const name of Object.keys(s.pairs)) {
+    const p = s.pairs[name];
+    const d = p.divergence;
+    let verdict = "金利差と価格はおおむね整合的";
+    if (d >= 1.0) verdict = "価格が金利差より先行（走りすぎの可能性）";
+    else if (d <= -1.0) verdict = "金利差に価格が追随していない（出遅れの可能性）";
+    out.push(`<div class="div-card" data-tip="${encodeURIComponent(
+      `<b>${name}</b><br>乖離 <b>${fmt(d, 2)}</b>σ<br>金利差20日 <b>${fmt(p.rate_diff_d20, 0)}</b>bp<br>為替20日 <b>${fmt(p.chg20, 2)}</b>%`)}">
+      <div class="div-head"><span class="div-name">${name}</span>
+        <span class="div-val" style="color:${Math.abs(d) < 1 ? "var(--text-secondary)" : (d > 0 ? "var(--pos)" : "var(--neg)")}">${fmt(d, 2)}σ</span></div>
+      ${sparkline(recent(p.divergence_series), { w: 210, h: 44 })}
+      <div class="div-legend">金利差 ${fmt(p.rate_diff_d20, 0)}bp ／ 為替 ${fmt(p.chg20, 2)}%（20日）</div>
+      <div class="div-verdict">${verdict}</div>
+    </div>`);
+  }
+  out.push(`</div></section>`);
+
+  /* ===== データ鮮度 ===== */
+  const srcs = Object.entries(data.sources || {});
+  const bad = srcs.filter(([, v]) => !v.ok).length;
+  const stale = srcs.filter(([, v]) => v.ok && v.stale).length;
+  out.push(`<section>
+    <h2>データ鮮度</h2>
+    <p class="note">${srcs.length}ソース中、取得失敗 ${bad} ／ 鮮度低下 ${stale}。
+      取得に失敗したソースは前回値を保持して計算を継続します。
+      <button class="ghost" data-toggle="tbl-src" type="button" style="margin-left:6px">一覧を見る</button></p>
+    <div class="hidden scroll-x" id="tbl-src"><table class="data">
+      <thead><tr><th>ソース</th><th>状態</th><th>最終データ</th><th>経過日数</th><th>点数</th></tr></thead>
+      <tbody>${srcs.map(([k, v]) => {
+        const cls = !v.ok ? "src-fail" : (v.stale ? "src-stale" : "src-ok");
+        const label = !v.ok ? (v.fallback ? "失敗（前回値）" : "失敗") : (v.stale ? "鮮度低下" : "正常");
+        return `<tr><td>${v.label}</td><td class="${cls}">${label}</td>
+          <td>${v.last_date || "—"}</td><td>${v.stale_days ?? "—"}</td><td>${v.points}</td></tr>`;
+      }).join("")}</tbody></table></div>
+  </section>`);
+
+  $("#app").innerHTML = out.join("");
+
+  /* ツールチップと表トグルを配線 */
+  document.querySelectorAll("[data-tip]").forEach(el =>
+    bindTip(el, decodeURIComponent(el.getAttribute("data-tip"))));
+  document.querySelectorAll("[data-toggle]").forEach(btn =>
+    btn.addEventListener("click", () => {
+      const el = document.getElementById(btn.getAttribute("data-toggle"));
+      const shown = el.classList.toggle("hidden") === false;
+      btn.textContent = shown ? "表を閉じる" : (btn.getAttribute("data-toggle") === "tbl-src" ? "一覧を見る" : "表で見る");
+    }));
+}
+
+/* --- テーマ切替 --- */
+(function theme() {
+  const KEY = "fx-strength-theme";
+  const saved = localStorage.getItem(KEY);
+  if (saved) document.documentElement.setAttribute("data-theme", saved);
+  $("#theme-btn").addEventListener("click", () => {
+    const cur = document.documentElement.getAttribute("data-theme");
+    const isDark = cur ? cur === "dark"
+      : matchMedia("(prefers-color-scheme: dark)").matches;
+    const next = isDark ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    localStorage.setItem(KEY, next);
+  });
+})();
+
+/* --- 起動 --- */
+(async function boot() {
+  try {
+    const res = await fetch("data.json?t=" + Date.now());
+    if (!res.ok) throw new Error(`data.json を取得できません (HTTP ${res.status})`);
+    const data = await res.json();
+    let narrative = null;
+    try {
+      const nr = await fetch("narrative.json?t=" + Date.now());
+      if (nr.ok) narrative = await nr.json();
+    } catch (_) { /* Phase 3 まで存在しなくてよい */ }
+    render(data, narrative);
+  } catch (err) {
+    $("#app").innerHTML = `<p class="loading err">${err.message}</p>
+      <p class="loading">ローカルで見る場合は <code>python serve.py</code> を実行してください。</p>`;
+  }
+})();
+</script>
+</body>
+</html>

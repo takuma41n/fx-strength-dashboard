@@ -1,0 +1,51 @@
+name: Update FX data
+
+on:
+  schedule:
+    # 平日 06:10 UTC = 日本時間 15:10。欧州勢が動き出す前で、
+    # 前営業日の米国終値と当日のアジア時間の値が揃っている時刻。
+    - cron: "10 6 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install --quiet numpy openpyxl
+
+      - name: Fetch market data
+        run: python -u fetch_market.py
+
+      - name: Compute scores
+        run: python -u score.py --quiet
+
+      - name: Report backtest
+        # 失敗させたくはないが、的中率の推移はログに残しておきたい
+        continue-on-error: true
+        run: python -u score.py --backtest
+
+      - name: Commit
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- data.json; then
+            echo "変更なし"
+            exit 0
+          fi
+          git add data.json
+          git commit -m "chore: update data.json ($(date -u +%Y-%m-%d))"
+          git push
