@@ -133,14 +133,34 @@ h2 { font-size: 15px; font-weight: 600; margin: 0 0 3px; }
 .stat .k { font-size: 12px; color: var(--text-secondary); }
 .stat .v { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
 
+/* --- Claude の見立て --- */
+.caveat { font-size: 12px; margin: 8px 0 0; color: var(--text-muted); border-top: 1px solid var(--grid); padding-top: 7px; }
+/* 機械スコアと Claude の見解が食い違っている通貨に付く印。
+   文字は常にインク色で、色は三角のグリフだけが持つ。 */
+.cmark { font-size: 11px; margin-left: 3px; font-weight: 400; }
+.cmark.up { color: var(--pos); }
+.cmark.down { color: var(--neg); }
+.notes { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px 20px; }
+.note-row { display: flex; gap: 9px; font-size: 13px; padding: 7px 0; border-bottom: 1px solid var(--grid); }
+.note-row .nk { font-weight: 600; flex: 0 0 52px; }
+.note-row .nv { color: var(--text-secondary); }
+.watch-row { display: grid; grid-template-columns: 92px 48px 1fr; gap: 10px; align-items: baseline;
+  font-size: 13px; padding: 8px 0; border-bottom: 1px solid var(--grid); }
+.watch-row:last-child { border-bottom: 0; }
+.watch-row .wd { color: var(--text-muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.watch-row .wc { font-weight: 600; }
+.watch-row .we b { font-weight: 600; }
+.watch-row .we span { color: var(--text-secondary); }
+@media (max-width: 560px) { .watch-row { grid-template-columns: 84px 44px; } .watch-row .we { grid-column: 1 / -1; } }
+
 /* --- 通貨強弱バー --- */
 .bars { display: flex; flex-direction: column; gap: 2px; }
 .bar-row {
-  display: grid; grid-template-columns: 46px 1fr 96px 114px;
+  display: grid; grid-template-columns: 62px 1fr 96px 114px;
   align-items: center; gap: 12px; padding: 5px 6px; border-radius: 8px; cursor: default;
 }
 .bar-row:hover { background: var(--hover); }
-@media (max-width: 720px) { .bar-row { grid-template-columns: 40px 1fr 74px; } .bar-row .spark-cell { display: none; } }
+@media (max-width: 720px) { .bar-row { grid-template-columns: 56px 1fr 74px; } .bar-row .spark-cell { display: none; } }
 .ccy { font-weight: 600; font-size: 14px; }
 .bar-track { position: relative; height: 24px; }
 .bar-axis { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--axis); }
@@ -396,11 +416,14 @@ function render(data, narrative) {
       <div class="card" style="margin-top:12px">
         <div class="hero-label">Claude の見立て</div>
         ${narrative
-          ? `<div class="hero-sub" style="margin-top:6px">${narrative.as_of} 時点</div>
-             <p style="font-size:13px;margin:8px 0 0;color:var(--text-secondary)">${narrative.text}</p>`
+          ? `<div class="hero-sub" style="margin-top:6px">${narrative.as_of} 時点${
+               narrative.based_on !== s.as_of
+                 ? ` <span style="color:var(--warning)">／ スコア基準日 ${narrative.based_on} 時点の見立てです</span>` : ""}</div>
+             <p style="font-size:13px;margin:8px 0 0;color:var(--text-secondary)">${narrative.summary}</p>
+             ${narrative.caveat ? `<p class="caveat">留意: ${narrative.caveat}</p>` : ""}`
           : `<p style="font-size:13px;margin:8px 0 0;color:var(--text-muted)">
-             まだ生成されていません。中銀発言・要人コメント・政治イベントを加味した定性補正は
-             Phase 3 で <code>narrative.json</code> として追加されます。</p>`}
+             まだ生成されていません。中銀発言・要人コメント・政治イベントを加味した定性の見立ては
+             <code>/fx-brief</code> で <code>narrative.json</code> を生成すると表示されます。</p>`}
       </div>
     </div>
   </div></section>`);
@@ -408,7 +431,7 @@ function render(data, narrative) {
   /* ===== 通貨強弱 ===== */
   out.push(`<section>
     <h2>通貨強弱</h2>
-    <p class="note">6通貨の平均がゼロになるよう揃えた相対スコア。右のスパークラインは直近60営業日の推移。
+    <p class="note">6通貨の平均がゼロになるよう揃えた相対スコア。右のスパークラインは直近60営業日の推移。${narrative ? "▲▼ は Claude が機械スコアと違う見方をしている通貨（印がなければ同意見）。" : ""}
       <button class="ghost" data-toggle="tbl-ccy" type="button" style="margin-left:6px">表で見る</button></p>
     <div class="card"><div class="bars">`);
   for (const c of order) {
@@ -420,13 +443,17 @@ function render(data, narrative) {
       : `right:50%;width:${w}%;`;
     const hist = s.history[c] || [];
     const rate = info.rate;
+    const nv = narrative && narrative.currencies ? narrative.currencies[c] : null;
+    const view = nv && nv.view !== "neutral" ? nv.view : null;
     const tipHtml = `<b>${c}</b> スコア <b>${fmt(info.score)}</b><br>
       金利・政策期待 <b>${fmt(info.pillars.rates)}</b><br>
       リスクレジーム <b>${fmt(info.pillars.risk)}</b><br>
       固有要因 <b>${fmt(info.pillars.idio)}</b>${info.idio_note ? "（" + info.idio_note + "）" : ""}<br>
-      <span style="color:var(--text-muted)">${rate.label} ${abs(rate.value, 3)}%（20日 ${fmt(rate.d20, 0)}bp）</span>`;
+      <span style="color:var(--text-muted)">${rate.label} ${abs(rate.value, 3)}%（20日 ${fmt(rate.d20, 0)}bp）</span>
+      ${view ? `<br><br>Claude: 機械スコアより${view === "up" ? "強気" : "弱気"}<br>${nv.note}` : ""}`;
     out.push(`<div class="bar-row" data-tip="${encodeURIComponent(tipHtml)}">
-      <div class="ccy">${c}${rate.proxy ? '<span style="color:var(--text-muted);font-weight:400">*</span>' : ""}</div>
+      <div class="ccy">${c}${rate.proxy ? '<span style="color:var(--text-muted);font-weight:400">*</span>' : ""}${
+        view ? `<span class="cmark ${view}">${view === "up" ? "▲" : "▼"}</span>` : ""}</div>
       <div class="bar-track"><div class="bar-axis"></div>
         <div class="bar-fill ${side}" style="${style}background:${info.score >= 0 ? "var(--pos)" : "var(--neg)"}"></div></div>
       <div>
@@ -533,6 +560,33 @@ function render(data, narrative) {
     </div>`);
   }
   out.push(`</div></section>`);
+
+  /* ===== Claude の注記と注目イベント ===== */
+  if (narrative) {
+    const notes = CCY.filter(c => narrative.currencies && narrative.currencies[c])
+      .map(c => ({ c, ...narrative.currencies[c] }));
+    const watch = (narrative.watch || []);
+    const today = new Date(s.as_of);
+    out.push(`<section>
+      <h2>Claude の注記と注目イベント</h2>
+      <p class="note">機械スコアが数値化できない材料（中銀のスタンス、要人発言、政治イベント）を Claude が補います。
+        ${narrative.as_of} 時点。機械スコアは毎営業日更新されるので、更新日がずれることがあります。</p>
+      <div class="card">
+        <div class="notes">${notes.map(n => `<div class="note-row">
+          <span class="nk">${n.c}${n.view !== "neutral" ? `<span class="cmark ${n.view}">${n.view === "up" ? "▲" : "▼"}</span>` : ""}</span>
+          <span class="nv">${n.note}</span></div>`).join("")}</div>
+        ${watch.length ? `<div style="margin-top:18px">
+          <div class="hero-label" style="margin-bottom:4px">今後の注目イベント</div>
+          ${watch.map(w => {
+            const d = new Date(w.date);
+            const past = d < today;
+            return `<div class="watch-row" style="${past ? "opacity:.5" : ""}">
+              <span class="wd">${w.date}</span><span class="wc">${w.ccy}</span>
+              <span class="we"><b>${w.event}</b>${w.note ? ` <span>— ${w.note}</span>` : ""}</span></div>`;
+          }).join("")}</div>` : ""}
+      </div>
+    </section>`);
+  }
 
   /* ===== データ鮮度 ===== */
   const srcs = Object.entries(data.sources || {});
