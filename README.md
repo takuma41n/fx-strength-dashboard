@@ -121,17 +121,48 @@ bootstrap_history.py  初回のみ: BOE 全履歴の流し込み
 score.py              柱別スコア → 通貨スコア → ペア方向性 ／ バックテスト
 index.html            静的ダッシュボード
 serve.py              ローカル確認用サーバ
+validate_narrative.py narrative.json の検査
 data.json             生成物（履歴キャッシュを兼ねる）
-narrative.json        Claude の定性補正（Phase 3）
+narrative.json        Claude の見立て（/fx-brief が生成）
+.claude/skills/fx-brief/SKILL.md   /fx-brief スキルの定義
 ```
+
+## Claude の見立て（`/fx-brief`）
+
+機械スコアが数値化できない材料——中銀のスタンス、要人発言、政治イベント、為替介入の
+警戒感——を Claude が補うレイヤー。Claude Code で `/fx-brief` を叩くと、`data.json` を
+読んだうえで各国中銀の現状を調べ、`narrative.json` を生成してコミットする。
+
+**機械スコアは書き換えない。** 数値を手で動かすとバックテストで検証した的中率の意味が
+失われ、シグナルが当たった/外れたときの原因追跡もできなくなる。Claude の見解は
+別レイヤーとして重ねて表示し、**機械と食い違っている通貨にだけ ▲▼ の印が付く**。
+印がなければ「Claude も機械と同意見」という意味で、食い違いが一目で分かるようにしてある。
+
+```bash
+# Claude Code 上で
+/fx-brief
+
+# 生成物の検査だけ単体で回す場合
+python validate_narrative.py
+```
+
+`narrative.json` のスキーマと書き方のルールは `.claude/skills/fx-brief/SKILL.md` にある。
+`view` は**機械スコアとの差分**を表すので、機械と同意見の通貨は `neutral` が正しい
+（`validate_narrative.py` が全通貨に補正が付いている場合に警告を出す）。
+
+実行頻度は手動。中銀イベントや要人発言は毎日動くものではないので、日次で回しても
+ほぼ同じ文章になる。FOMC・日銀会合の前後や、スコアが大きく動いた週に叩く運用を想定している。
+機械スコア（毎営業日更新）とナラティブ（不定期）で更新日がずれるため、ダッシュボードには
+両方の日付を表示し、ずれている場合は警告色で明示する。
 
 ## 今後
 
 - **Phase 2**: インフレ（12%）と景気・雇用（15%）の柱を各国公式API
   （Eurostat / ONS / e-Stat / ABS / BFS）から追加。米国は既存の
   [us-econ-dashboard](https://takuma41n.github.io/us-econ-dashboard/) のロジックを流用
-- **Phase 3**: Claude が中銀発言・要人コメント・政治イベントを読んで `narrative.json` を
-  生成する定性補正レイヤー、CFTC COT のポジションオーバーレイ
+- **Phase 3**: CFTC COT のポジションオーバーレイ（投機筋が極端に傾いていたら逆張り警告）
+- `/fx-brief` を GitHub Actions に組み込んで自動化する案もあるが、Anthropic API キーと
+  従量課金が必要になるため、手動運用で中身の実用性を確かめてから判断する
 
 ## 免責
 
