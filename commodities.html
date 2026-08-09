@@ -3,14 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FX通貨強弱・方向性ダッシュボード</title>
+<title>コモディティ強弱 — FX通貨強弱ダッシュボード</title>
 <style>
 /* ------------------------------------------------------------------
-   カラートークン
-   既存の us-econ-dashboard と同じサーフェス/インクを踏襲。
-   強弱スケールは diverging blue↔red（中立はグレー）。緑/赤は
-   前日比などのデルタ表示にのみ使い、方向性の主軸には使わない
-   （赤緑は色覚特性で最も分離しにくい組み合わせのため）。
+   カラートークン — index.html と同一（両ページで見た目を揃える）
    ------------------------------------------------------------------ */
 :root {
   color-scheme: light;
@@ -138,35 +134,16 @@ h2 { font-size: 15px; font-weight: 600; margin: 0 0 3px; }
 .stat .k { font-size: 12px; color: var(--text-secondary); }
 .stat .v { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
 
-/* --- Claude の見立て --- */
-.caveat { font-size: 12px; margin: 8px 0 0; color: var(--text-muted); border-top: 1px solid var(--grid); padding-top: 7px; }
-/* 機械スコアと Claude の見解が食い違っている通貨に付く印。
-   文字は常にインク色で、色は三角のグリフだけが持つ。 */
-.cmark { font-size: 11px; margin-left: 3px; font-weight: 400; }
-.cmark.up { color: var(--pos); }
-.cmark.down { color: var(--neg); }
-.notes { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px 20px; }
-.note-row { display: flex; gap: 9px; font-size: 13px; padding: 7px 0; border-bottom: 1px solid var(--grid); }
-.note-row .nk { font-weight: 600; flex: 0 0 52px; }
-.note-row .nv { color: var(--text-secondary); }
-.watch-row { display: grid; grid-template-columns: 92px 48px 1fr; gap: 10px; align-items: baseline;
-  font-size: 13px; padding: 8px 0; border-bottom: 1px solid var(--grid); }
-.watch-row:last-child { border-bottom: 0; }
-.watch-row .wd { color: var(--text-muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
-.watch-row .wc { font-weight: 600; }
-.watch-row .we b { font-weight: 600; }
-.watch-row .we span { color: var(--text-secondary); }
-@media (max-width: 560px) { .watch-row { grid-template-columns: 84px 44px; } .watch-row .we { grid-column: 1 / -1; } }
-
-/* --- 通貨強弱バー --- */
+/* --- 強弱バー --- */
 .bars { display: flex; flex-direction: column; gap: 2px; }
 .bar-row {
-  display: grid; grid-template-columns: 62px 1fr 96px 114px;
+  display: grid; grid-template-columns: 108px 1fr 96px 114px;
   align-items: center; gap: 12px; padding: 5px 6px; border-radius: 8px; cursor: default;
 }
 .bar-row:hover { background: var(--hover); }
-@media (max-width: 720px) { .bar-row { grid-template-columns: 56px 1fr 74px; } .bar-row .spark-cell { display: none; } }
+@media (max-width: 720px) { .bar-row { grid-template-columns: 96px 1fr 74px; } .bar-row .spark-cell { display: none; } }
 .ccy { font-weight: 600; font-size: 14px; }
+.ccy small { font-weight: 400; color: var(--text-muted); }
 .bar-track { position: relative; height: 24px; }
 .bar-axis { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--axis); }
 .bar-fill { position: absolute; top: 3px; height: 18px; }
@@ -175,11 +152,12 @@ h2 { font-size: 15px; font-weight: 600; margin: 0 0 3px; }
 .bar-val { font-variant-numeric: tabular-nums; font-size: 13.5px; text-align: right; font-weight: 600; }
 .bar-delta { font-variant-numeric: tabular-nums; font-size: 11.5px; color: var(--text-muted); text-align: right; }
 
-/* --- ペアカード --- */
+/* --- 方向性カード --- */
 .pair-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: 14px; }
 .pair-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 15px 16px; }
 .pair-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .pair-name { font-size: 15px; font-weight: 600; }
+.pair-name small { font-weight: 400; color: var(--text-muted); font-size: 12px; }
 .pair-price { font-size: 12.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .pair-bias { display: flex; align-items: center; gap: 8px; margin: 9px 0 2px; }
 .bias-chip { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
@@ -197,18 +175,17 @@ h2 { font-size: 15px; font-weight: 600; margin: 0 0 3px; }
 /* --- ヒートマップ --- */
 table.grid { width: 100%; border-collapse: separate; border-spacing: 2px; font-size: 13px; }
 table.grid th { font-weight: 600; font-size: 12px; color: var(--text-secondary); text-align: center; padding: 4px; }
-table.grid th.row-h { text-align: left; width: 58px; color: var(--text-primary); }
+table.grid th.row-h { text-align: left; width: 84px; color: var(--text-primary); }
 table.grid td { text-align: center; padding: 9px 4px; border-radius: 6px; font-variant-numeric: tabular-nums; }
 table.grid td.na { color: var(--text-muted); background: transparent; border: 1px dashed var(--grid); font-size: 11.5px; }
 
-/* --- 乖離パネル --- */
+/* --- 需給・マクロパネル --- */
 .div-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(238px, 1fr)); gap: 14px; }
 .div-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 13px 15px; }
 .div-head { display: flex; justify-content: space-between; align-items: baseline; }
 .div-name { font-weight: 600; font-size: 13.5px; }
 .div-val { font-size: 13px; font-variant-numeric: tabular-nums; font-weight: 600; }
 .div-legend { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; font-variant-numeric: tabular-nums; }
-.div-verdict { font-size: 11.5px; margin-top: 5px; color: var(--text-secondary); }
 
 /* --- テーブルビュー --- */
 table.data { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
@@ -226,6 +203,9 @@ summary { cursor: pointer; font-size: 13.5px; font-weight: 600; color: var(--tex
 details .body { font-size: 13px; color: var(--text-secondary); max-width: 74ch; }
 details h3 { font-size: 13.5px; margin: 18px 0 4px; color: var(--text-primary); }
 details code { font-size: 12px; background: var(--hover); padding: 1px 5px; border-radius: 4px; }
+details table.sign { border-collapse: collapse; font-size: 12.5px; margin: 6px 0; }
+details table.sign th, details table.sign td { border: 1px solid var(--grid); padding: 4px 9px; text-align: left; }
+details table.sign th { color: var(--text-secondary); font-weight: 600; }
 
 #tooltip {
   position: fixed; pointer-events: none; z-index: 60; opacity: 0; transition: opacity .1s;
@@ -245,9 +225,9 @@ details code { font-size: 12px; background: var(--hover); padding: 1px 5px; bord
 <div class="wrap">
 
 <header>
-  <h1>FX通貨強弱・方向性ダッシュボード</h1>
-  <span class="badge" id="phase-badge">Phase 1</span>
-  <nav class="tabs"><a href="./" class="on">FX</a><a href="commodities.html">コモディティ</a></nav>
+  <h1>コモディティ強弱・方向性</h1>
+  <span class="badge" id="phase-badge">ドル建て 3銘柄</span>
+  <nav class="tabs"><a href="./">FX</a><a href="commodities.html" class="on">コモディティ</a></nav>
   <span class="spacer"></span>
   <button class="ghost" id="theme-btn" type="button">テーマ切替</button>
 </header>
@@ -259,40 +239,61 @@ details code { font-size: 12px; background: var(--hover); padding: 1px 5px; bord
   <summary>この指標の読み方と計算方法</summary>
   <div class="body">
     <h3>何を見ているか</h3>
-    <p>USD / EUR / JPY / GBP / AUD / CHF の6通貨をそれぞれスコア化し、その差からペアの方向性を出しています。
-    メイン7ペアはこの6通貨で閉じるので、通貨のスコアが決まればペアの方向は自動的に決まります。</p>
+    <p>ゴールド・シルバー・WTI原油（すべてドル建て）を、それぞれのファンダメンタルなドライバで
+    スコア化しています。FXページと同じく「水準ではなく変化」を直近1年の z-score にして
+    ±100 に圧縮し、柱の加重和をスコアとしています。</p>
 
-    <h3>「水準」ではなく「変化」で見る</h3>
-    <p>数日〜2週間のスイングで為替を動かすのは金利の絶対水準ではなく変化です。
-    そのため全指標を「今いくつか」ではなく「直近どれだけ動いたか」で評価し、
-    直近1年のレンジに対する z-score に変換してから ±100 に圧縮しています。</p>
+    <h3>FXのスコアと決定的に違う点</h3>
+    <p>FXの6通貨スコアは「6通貨の平均が必ずゼロ」の相対値ですが、コモディティは
+    閉じたバスケットではないので<em>絶対評価</em>です。したがって
+    <strong>3銘柄すべてが強気（またはすべて弱気）になることがありえます</strong>。
+    2つのページのスコアを直接比較しないでください。</p>
 
-    <h3>スコアは相対値</h3>
-    <p>各柱は6通貨の平均が必ずゼロになるよう揃えています。全通貨の金利が同時に上がっても
-    誰も強くならないためです。したがってスコアは「他の5通貨と比べてどうか」を意味します。</p>
+    <h3>柱と符号の規約</h3>
+    <table class="sign">
+      <tr><th>銘柄</th><th>柱（ウェイト）</th><th>符号</th></tr>
+      <tr><td rowspan="5">金</td><td>実質金利（32%）</td><td>米10年実質金利の上昇 = 金安（無利子資産の機会費用増）</td></tr>
+      <tr><td>ドル（20%）</td><td>ドル指数の上昇 = 金安（ドル建てのため）</td></tr>
+      <tr><td>リスク回避需要（18%）</td><td>リスクオフ = 金高（安全資産需要）</td></tr>
+      <tr><td>期待インフレ（12%）</td><td>期待インフレ上昇 = 金高</td></tr>
+      <tr><td>モメンタム（18%）</td><td>自身の騰落の z-score</td></tr>
+      <tr><td rowspan="6">銀</td><td>金連動（26%）</td><td>金価格の上昇 = 銀高（貴金属としての連動）</td></tr>
+      <tr><td>工業需要（20%）</td><td>銅・上海株の上昇 = 銀高（工業金属の面）</td></tr>
+      <tr><td>実質金利（16%）／ドル（14%）</td><td>金と同じ</td></tr>
+      <tr><td>モメンタム（16%）</td><td>自身の騰落</td></tr>
+      <tr><td>金銀比（8%）</td><td>比が過去1年の高位 = 銀が金対比で割安 = 平均回帰で銀強気</td></tr>
+      <tr><td>—</td><td>リスク柱は入れていません（銀は貴金属として買われる局面と工業金属として売られる局面が混在し、符号が不安定なため。リスクオフの影響は金連動と工業需要が両側から拾います）</td></tr>
+      <tr><td rowspan="5">WTI</td><td>在庫（28%）</td><td>EIA週次在庫の積み増し = 弱気。Δ1週/Δ4週/Δ52週の z（52週差分が季節性除去を兼ねる）</td></tr>
+      <tr><td>ターム構造（24%）</td><td>期近−2番限スプレッドがプラス（バックワーデーション）= 現物逼迫 = 強気。水準0.55 + 20日変化0.45</td></tr>
+      <tr><td>世界需要（20%）</td><td>銅・上海株の上昇 = 強気</td></tr>
+      <tr><td>モメンタム（16%）</td><td>自身の騰落</td></tr>
+      <tr><td>ドル（12%）</td><td>ドル高 = 弱気</td></tr>
+    </table>
 
-    <h3>確信度はスコアと別物</h3>
-    <p>5本柱すべてが同じ方向を向いたシグナルと、1本の柱だけで押し切っているシグナルは意味が違います。
-    確信度は「柱の符号の一致度 × スコアの大きさ」で、スコアとは独立に表示しています。</p>
+    <h3>リスク回避需要はFXページのレジームと少し違う</h3>
+    <p>FXページのリスクレジームは VIX・HYスプレッド・株モメンタム・金/銅比の4成分ですが、
+    金/銅比を金のスコアに使うと「金が上がる → レジームがリスクオフに振れる → 金のスコアが上がる」
+    という循環参照（実質モメンタムの二重計上）になります。そのためこのページでは
+    金/銅比を除いた3成分で取り直しています。</p>
 
-    <h3>中立ゾーンを広く取っている理由</h3>
-    <p>バックテストすると翌10営業日の的中率はスコアの強さと単調に上がりました
-    （|スコア差| ≧15 で 51.2%、≧30 で 53.9%、≧45 で 58.2%、≧60 で 60.6%）。
-    一方で閾値を設けず弱いシグナルまで拾うと 46.2% と50%を割ります。
-    つまり弱いスコアは無情報どころか逆効果なので、±30未満は「シグナルなし」として中立に倒しています。
-    なお日次サンプルは重複が大きく、高閾値の的中率は件数が少ないため統計的に有意とまでは言えません。</p>
+    <h3>柱が「蓄積中」のとき</h3>
+    <p>ターム構造（WTIの2番限）は取得を始めたばかりで、z-score に必要な約30営業日分が
+    貯まるまでスコアに入りません。欠けた柱のぶんは残りの柱のウェイトを再正規化して算出し、
+    カードに「実装ウェイト」として表示します（FXページの実装ウェイト73%と同じ発想です）。</p>
 
-    <h3>金利差 vs 為替の乖離</h3>
-    <p>柱①（金利）と柱④（リスク）は市場が<em>既に織り込んでいるもの</em>、
-    柱②（インフレ）と柱③（景気）は<em>これから織り込まれるもの</em>です。
-    乖離パネルは前者と価格のズレを見ています。プラスなら金利差の動き以上に為替が動いている（走りすぎ）、
-    マイナスなら金利差が動いたのに為替が追随していない（出遅れ）ことを示します。</p>
+    <h3>中立ゾーンをFXよりさらに広く取っている理由</h3>
+    <p>バックテスト（2025-01〜2026-08）では、翌10営業日の的中率は
+    |スコア| ≧40 で 50.3%、≧50 で 59.2% と、強いシグナルだけが情報を持ちました。
+    一方 20〜30 の帯は 44%台と50%を割り、弱いシグナルは逆効果でした。
+    そのため ±40 未満は「シグナルなし」として中立に倒しています。
+    ただし履歴が400営業日ぶんしかなく高閾値の件数も少ないため、この較正は参考値です。
+    データが溜まり次第 <code>python score_commodities.py --backtest</code> で再較正します。</p>
 
-    <h3>Phase 1 の限界</h3>
-    <p>現在は日次で取れる市場データのみで、全体設計のウェイトの73%を実装しています。
-    インフレ（12%）と景気・雇用（15%）の柱は Phase 2 で各国の公式統計APIから追加します。
-    CHF だけは2年国債の無料日次ソースが全滅していたため SARON 6ヶ月（短期金利）で代用しており、
-    他通貨よりも金利感応度が低く出ます。</p>
+    <h3>データソース（すべて無料・APIキー不要）</h3>
+    <p>金・銀・WTI・ブレント・ドル指数・銅・上海株は Yahoo Finance、
+    米10年実質金利（DFII10）と期待インフレ（T5YIE）は FRED、
+    原油在庫は EIA の週次データ（キーレスのHTML）、
+    WTI 2番限は Yahoo の限月コード（CL=F との突き合わせで期近を同定）です。</p>
 
     <h3>免責</h3>
     <p>機械的に計算した参考値であり、投資助言ではありません。エントリーの判断は各自でお願いします。</p>
@@ -309,13 +310,7 @@ const $ = (sel, root) => (root || document).querySelector(sel);
 const fmt = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v)) ? "—"
   : (v >= 0 ? "+" : "") + Number(v).toFixed(d);
 const abs = (v, d = 1) => (v === null || v === undefined || Number.isNaN(v)) ? "—" : Number(v).toFixed(d);
-/* 円ペアは3桁、それ以外は5桁。取引ツールの表示に合わせる */
-const px = (v, quote) => Number(v).toFixed(quote === "JPY" ? 3 : 5);
 
-/* diverging スケール: 中立グレーから両極へ color-mix で等間隔に伸ばす。
-   セルの上に数値を載せるヒートマップは wash 側（8〜58%）に留める。
-   58%を超えるとダークモードの白文字が 4.5:1 を割るため。
-   バーやチップは文字を載せない細いマークなので濃い側まで使う。 */
 function divColor(value, max, minPct, spanPct) {
   const t = Math.min(1, Math.abs(value) / max);
   const pole = value >= 0 ? "var(--pos)" : "var(--neg)";
@@ -346,11 +341,9 @@ function bindTip(el, html) {
   el.addEventListener("blur", () => tip.classList.remove("on"));
 }
 
-/* 直近 n 営業日に絞る。120点を88pxに詰めると線が団子になって読めない。
-   60営業日＝約3か月で、スイングの時間軸に対して十分な文脈になる。 */
 const recent = (arr, n = 60) => arr.slice(-n);
 
-/* --- スパークライン（ゼロ基準の diverging エリア） --- */
+/* --- スパークライン（index.html と同一） --- */
 function sparkline(values, opts) {
   const o = Object.assign({ w: 88, h: 26, zero: true, pad: 2 }, opts || {});
   const vals = values.filter(v => v !== null && !Number.isNaN(v));
@@ -361,7 +354,7 @@ function sparkline(values, opts) {
   if (max - min < 1e-9) { max += 0.5; min -= 0.5; }
   const X = i => o.pad + i * (o.w - 2 * o.pad) / (values.length - 1);
   const Y = v => o.pad + (max - v) * (o.h - 2 * o.pad) / (max - min);
-  const zy = Y(0);
+  const zy = Y(Math.max(min, Math.min(max, 0)));
   const pts = values.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
   const areaPos = `M ${X(0).toFixed(1)},${zy.toFixed(1)} L ${pts.replace(/ /g, " L ")} L ${X(values.length - 1).toFixed(1)},${zy.toFixed(1)} Z`;
   const uid = "sp" + Math.random().toString(36).slice(2, 9);
@@ -380,29 +373,48 @@ function sparkline(values, opts) {
   </svg>`;
 }
 
+/* --- series ユーティリティ（需給パネル用） --- */
+function seriesTail(entry, n) {
+  if (!entry || !entry.values || entry.values.length < 2) return null;
+  return entry.values.slice(-n);
+}
+/* 2系列を日付で突き合わせて f(a,b) を返す */
+function seriesJoin(ea, eb, f, n) {
+  if (!ea || !eb) return null;
+  const mb = new Map(eb.dates.map((d, i) => [d, eb.values[i]]));
+  const out = [];
+  ea.dates.forEach((d, i) => { if (mb.has(d)) out.push(f(ea.values[i], mb.get(d))); });
+  if (out.length < 2) return null;
+  return out.slice(-n);
+}
+
 /* --- レンダリング --- */
-function render(data, narrative) {
-  const s = data.scores;
-  if (!s) throw new Error("data.json にスコアがありません。score.py を実行してください。");
-
-  const CCY = ["USD", "EUR", "JPY", "GBP", "AUD", "CHF"];
-  const order = CCY.slice().sort((a, b) => s.currencies[b].score - s.currencies[a].score);
+function render(data) {
+  const c = data.commodities;
+  if (!c) throw new Error("data.json にコモディティスコアがありません。score_commodities.py を実行してください。");
+  const SYMS = Object.keys(c.instruments);
+  const order = SYMS.slice().sort((a, b) => c.instruments[b].score - c.instruments[a].score);
   const strongest = order[0], weakest = order[order.length - 1];
-  const maxAbs = Math.max(50, ...CCY.map(c => Math.abs(s.currencies[c].score)));
+  const maxAbs = Math.max(50, ...SYMS.map(s => Math.abs(c.instruments[s].score)));
+  const th = c.bias_thresholds || { strong: 50, mild: 40 };
 
-  $("#phase-badge").textContent = `Phase ${data.phase} · 実装ウェイト ${Math.round(s.implemented_weight * 100)}%`;
+  const minW = Math.min(...SYMS.map(s => c.instruments[s].implemented_weight));
+  $("#phase-badge").textContent = minW < 1
+    ? `ドル建て 3銘柄 · 実装ウェイト ${Math.round(minW * 100)}%〜`
+    : "ドル建て 3銘柄";
   const gen = new Date(data.generated_at);
   $("#header-sub").textContent =
-    `基準日 ${s.as_of} ／ データ更新 ${gen.toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" })}`;
+    `基準日 ${c.as_of} ／ データ更新 ${gen.toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" })}`;
 
   const out = [];
 
-  /* ===== ヒーロー: リスクレジーム ===== */
-  const rg = s.regime;
+  /* ===== ヒーロー ===== */
+  const rg = c.regime;
   const markPct = ((rg.value + 1) / 2 * 100).toFixed(1);
+  const usd = data.scores && data.scores.currencies ? data.scores.currencies.USD : null;
   out.push(`<section><div class="hero">
     <div class="card">
-      <div class="hero-label">リスクレジーム</div>
+      <div class="hero-label">リスク回避需要</div>
       <div class="hero-value">${rg.label}</div>
       <div class="hero-sub">合成スコア ${fmt(rg.value, 2)}（−1 = リスクオフ ／ +1 = リスクオン）</div>
       <div class="meter-track"><div class="meter-mark" style="left:${markPct}%"></div></div>
@@ -411,196 +423,163 @@ function render(data, narrative) {
         ${Object.entries(rg.components).map(([k, v]) =>
           `<div class="comp-row"><span>${k}</span><span>${fmt(v, 2)}</span></div>`).join("")}
       </div>
+      <p class="note" style="margin:10px 0 0">${rg.note}</p>
     </div>
     <div>
       <div class="stat-grid">
-        <div class="stat"><div class="k">最強通貨</div><div class="v">${strongest}</div>
-          <div class="hero-sub">${fmt(s.currencies[strongest].score)}</div></div>
-        <div class="stat"><div class="k">最弱通貨</div><div class="v">${weakest}</div>
-          <div class="hero-sub">${fmt(s.currencies[weakest].score)}</div></div>
+        <div class="stat"><div class="k">最強</div><div class="v">${c.instruments[strongest].label}</div>
+          <div class="hero-sub">${fmt(c.instruments[strongest].score)}</div></div>
+        <div class="stat"><div class="k">最弱</div><div class="v">${c.instruments[weakest].label}</div>
+          <div class="hero-sub">${fmt(c.instruments[weakest].score)}</div></div>
       </div>
-      <div class="card" style="margin-top:12px">
-        <div class="hero-label">Claude の見立て</div>
-        ${narrative
-          ? `<div class="hero-sub" style="margin-top:6px">${narrative.as_of} 時点${
-               narrative.based_on !== s.as_of
-                 ? ` <span style="color:var(--warning)">／ スコア基準日 ${narrative.based_on} 時点の見立てです</span>` : ""}</div>
-             <p style="font-size:13px;margin:8px 0 0;color:var(--text-secondary)">${narrative.summary}</p>
-             ${narrative.caveat ? `<p class="caveat">留意: ${narrative.caveat}</p>` : ""}`
-          : `<p style="font-size:13px;margin:8px 0 0;color:var(--text-muted)">
-             まだ生成されていません。中銀発言・要人コメント・政治イベントを加味した定性の見立ては
-             <code>/fx-brief</code> で <code>narrative.json</code> を生成すると表示されます。</p>`}
-      </div>
+      ${usd ? `<div class="card" style="margin-top:12px">
+        <div class="hero-label">FX側の文脈: USDスコア</div>
+        <div style="font-size:28px;font-weight:600;margin-top:4px">${fmt(usd.score)}</div>
+        <p style="font-size:12.5px;margin:6px 0 0;color:var(--text-secondary)">
+          ここの3銘柄はすべてドル建てなので、USDの強弱（FXページの相対スコア）は
+          3銘柄共通の${usd.score >= 0 ? "逆風" : "追い風"}になります。
+          各カードの「ドル」柱と食い違うときはどちらかが遅れています。</p>
+      </div>` : ""}
     </div>
   </div></section>`);
 
-  /* ===== 通貨強弱 ===== */
+  /* ===== 強弱バー ===== */
   out.push(`<section>
-    <h2>通貨強弱</h2>
-    <p class="note">6通貨の平均がゼロになるよう揃えた相対スコア。右のスパークラインは直近60営業日の推移。${narrative ? "▲▼ は Claude が機械スコアと違う見方をしている通貨（印がなければ同意見）。" : ""}
-      <button class="ghost" data-toggle="tbl-ccy" type="button" style="margin-left:6px">表で見る</button></p>
+    <h2>コモディティ強弱</h2>
+    <p class="note">FXページと違い相対値ではなく絶対スコアです（3銘柄すべて強気もありえます）。右のスパークラインは直近60営業日のスコア推移。
+      <button class="ghost" data-toggle="tbl-cmd" type="button" style="margin-left:6px">表で見る</button></p>
     <div class="card"><div class="bars">`);
-  for (const c of order) {
-    const info = s.currencies[c];
-    const w = Math.abs(info.score) / maxAbs * 50;
-    const side = info.score >= 0 ? "p" : "n";
-    const style = info.score >= 0
-      ? `left:50%;width:${w}%;`
-      : `right:50%;width:${w}%;`;
-    const hist = s.history[c] || [];
-    const rate = info.rate;
-    const nv = narrative && narrative.currencies ? narrative.currencies[c] : null;
-    const view = nv && nv.view !== "neutral" ? nv.view : null;
-    const tipHtml = `<b>${c}</b> スコア <b>${fmt(info.score)}</b><br>
-      金利・政策期待 <b>${fmt(info.pillars.rates)}</b><br>
-      リスクレジーム <b>${fmt(info.pillars.risk)}</b><br>
-      固有要因 <b>${fmt(info.pillars.idio)}</b>${info.idio_note ? "（" + info.idio_note + "）" : ""}<br>
-      <span style="color:var(--text-muted)">${rate.label} ${abs(rate.value, 3)}%（20日 ${fmt(rate.d20, 0)}bp）</span>
-      ${view ? `<br><br>Claude: 機械スコアより${view === "up" ? "強気" : "弱気"}<br>${nv.note}` : ""}`;
+  for (const s of order) {
+    const i = c.instruments[s];
+    const w = Math.abs(i.score) / maxAbs * 50;
+    const side = i.score >= 0 ? "p" : "n";
+    const style = i.score >= 0 ? `left:50%;width:${w}%;` : `right:50%;width:${w}%;`;
+    const tipHtml = `<b>${s}</b> スコア <b>${fmt(i.score)}</b><br>` +
+      i.drivers.map(d => `${d.label} <b>${fmt(d.contrib)}</b>`).join("<br>") +
+      `<br><span style="color:var(--text-muted)">数値は正規化ウェイト込みの寄与（合計がスコア）</span>`;
     out.push(`<div class="bar-row" data-tip="${encodeURIComponent(tipHtml)}">
-      <div class="ccy">${c}${rate.proxy ? '<span style="color:var(--text-muted);font-weight:400">*</span>' : ""}${
-        view ? `<span class="cmark ${view}">${view === "up" ? "▲" : "▼"}</span>` : ""}</div>
+      <div class="ccy">${s} <small>${i.label}</small></div>
       <div class="bar-track"><div class="bar-axis"></div>
-        <div class="bar-fill ${side}" style="${style}background:${info.score >= 0 ? "var(--pos)" : "var(--neg)"}"></div></div>
+        <div class="bar-fill ${side}" style="${style}background:${i.score >= 0 ? "var(--pos)" : "var(--neg)"}"></div></div>
       <div>
-        <div class="bar-val">${fmt(info.score)}</div>
-        <div class="bar-delta">前日 ${fmt(info.d1)} ／ 前週 ${fmt(info.d5)}</div>
+        <div class="bar-val">${fmt(i.score)}</div>
+        <div class="bar-delta">前日 ${fmt(i.d1)} ／ 前週 ${fmt(i.d5)}</div>
       </div>
-      <div class="spark-cell">${sparkline(recent(hist), { w: 110, h: 28 })}</div>
+      <div class="spark-cell">${sparkline(recent(i.history), { w: 110, h: 28 })}</div>
     </div>`);
   }
-  const hasProxy = CCY.some(c => s.currencies[c].rate.proxy);
-  out.push(`</div>${hasProxy ? '<p class="note" style="margin:12px 0 0">* CHF は2年国債の無料日次ソースが全滅したため SARON 6ヶ月で代用。デュレーションが短いぶん金利感応度が低く出ます</p>' : ""}</div>
-    <div class="hidden scroll-x" id="tbl-ccy"><table class="data">
-      <thead><tr><th>通貨</th><th>スコア</th><th>前日比</th><th>前週比</th>
-        <th>金利</th><th>リスク</th><th>固有</th><th>参照金利</th><th>20日変化</th></tr></thead>
-      <tbody>${order.map(c => {
-        const i = s.currencies[c];
-        return `<tr><td>${c}</td><td>${fmt(i.score)}</td><td>${fmt(i.d1)}</td><td>${fmt(i.d5)}</td>
-          <td>${fmt(i.pillars.rates)}</td><td>${fmt(i.pillars.risk)}</td><td>${fmt(i.pillars.idio)}</td>
-          <td>${i.rate.label} ${abs(i.rate.value, 3)}%</td><td>${fmt(i.rate.d20, 0)}bp</td></tr>`;
+  out.push(`</div></div>
+    <div class="hidden scroll-x" id="tbl-cmd"><table class="data">
+      <thead><tr><th>銘柄</th><th>スコア</th><th>前日比</th><th>前週比</th><th>価格</th><th>5日%</th><th>20日%</th><th>実装W</th></tr></thead>
+      <tbody>${order.map(s => {
+        const i = c.instruments[s];
+        return `<tr><td>${s}（${i.label}）</td><td>${fmt(i.score)}</td><td>${fmt(i.d1)}</td><td>${fmt(i.d5)}</td>
+          <td>${abs(i.price, i.digits)}</td><td>${fmt(i.chg5, 2)}</td><td>${fmt(i.chg20, 2)}</td>
+          <td>${Math.round(i.implemented_weight * 100)}%</td></tr>`;
       }).join("")}</tbody></table></div>
   </section>`);
 
-  /* ===== ペア方向性 ===== */
-  const pairOrder = Object.keys(s.pairs).sort((a, b) =>
-    Math.abs(s.pairs[b].score) - Math.abs(s.pairs[a].score));
+  /* ===== 方向性カード ===== */
+  const cardOrder = SYMS.slice().sort((a, b) =>
+    Math.abs(c.instruments[b].score) - Math.abs(c.instruments[a].score));
   out.push(`<section>
-    <h2>ペア方向性</h2>
-    <p class="note">スコア差の絶対値が大きい順。±30未満は「シグナルなし」として中立に倒しています。カード下部の数値は柱ごとの「基軸通貨 − 決済通貨」なので、通貨単体のスコア（±100）より広い範囲を取ります。</p>
+    <h2>方向性</h2>
+    <p class="note">±${th.mild}未満は「シグナルなし」として中立に倒しています（FXの±30より広い中立ゾーン。バックテストで弱いシグナルが50%を割ったため）。</p>
     <div class="pair-grid">`);
-  for (const name of pairOrder) {
-    const p = s.pairs[name];
-    const neutral = p.bias === 0;
-    // 中立チップは --mid だとカード面に溶けて描画漏れに見えるので軸グレーを使う
-    const chip = neutral ? "var(--axis)" : divColor(p.score, 60);
-    const drivers = p.drivers.slice(0, 3).map(d =>
+  for (const s of cardOrder) {
+    const i = c.instruments[s];
+    const neutral = i.bias === 0;
+    const chip = neutral ? "var(--axis)" : divColor(i.score, 60);
+    const drivers = i.drivers.slice(0, 3).map(d =>
       `<div class="driver"><span>${d.label}</span><b>${fmt(d.contrib)}</b></div>`).join("");
+    const diags = i.diagnostics.map(d =>
+      `<div class="driver"><span>${d.label}</span><b style="font-weight:400;color:var(--text-secondary)">${d.text}</b></div>`).join("");
     out.push(`<div class="pair-card">
-      <div class="pair-head"><span class="pair-name">${name}</span>
-        <span class="pair-price">${px(p.price, p.quote)} <span style="color:${p.chg20 >= 0 ? "var(--delta-up)" : "var(--delta-down)"}">${fmt(p.chg20, 2)}%</span> <span style="color:var(--text-muted)">20日</span></span></div>
+      <div class="pair-head"><span class="pair-name">${s} <small>${i.label}</small></span>
+        <span class="pair-price">${abs(i.price, i.digits)} <span style="color:${i.chg20 >= 0 ? "var(--delta-up)" : "var(--delta-down)"}">${fmt(i.chg20, 2)}%</span> <span style="color:var(--text-muted)">20日</span></span></div>
       <div class="pair-bias">
         <span class="bias-chip" style="background:${chip}"></span>
-        <span class="bias-text">${p.bias_label}</span>
-        <span class="bias-score">スコア差 ${fmt(p.score)}</span>
+        <span class="bias-text">${i.bias_label}</span>
+        <span class="bias-score">スコア ${fmt(i.score)}</span>
       </div>
       <div class="conv">
-        <div class="conv-head"><span>確信度 ${p.conviction_label}</span><span>${p.conviction.toFixed(2)}</span></div>
-        <div class="conv-track"><div class="conv-fill" style="width:${(p.conviction * 100).toFixed(0)}%"></div></div>
+        <div class="conv-head"><span>確信度 ${i.conviction_label}</span><span>${i.conviction.toFixed(2)}</span></div>
+        <div class="conv-track"><div class="conv-fill" style="width:${(i.conviction * 100).toFixed(0)}%"></div></div>
       </div>
-      <div class="drivers">${drivers}
-        <div class="driver" style="margin-top:5px;color:var(--text-muted)">
-          <span>金利差 ${fmt(p.rate_diff, 2)}%</span><b style="color:var(--text-muted)">${fmt(p.rate_diff_d20, 0)}bp / 20日</b></div>
-      </div>
-      ${p.proxy_rate ? '<div class="pair-flag">* CHF は SARON 6ヶ月で代用。金利感応度が他通貨より低く出ます</div>' : ""}
+      <div class="drivers">${drivers}</div>
+      <div class="drivers">${diags}</div>
+      ${i.implemented_weight < 1 ? `<div class="pair-flag">実装ウェイト ${Math.round(i.implemented_weight * 100)}%（蓄積中の柱を除いて再正規化）</div>` : ""}
+      ${i.notes.map(n => `<div class="pair-flag">${n}</div>`).join("")}
     </div>`);
   }
   out.push(`</div></section>`);
 
   /* ===== 柱別ヒートマップ ===== */
-  const pillars = Object.keys(s.pillar_weights);
-  const future = [["inflation", "インフレ"], ["growth", "景気・雇用"]];
+  const pillarOrder = (c.pillar_order || Object.keys(c.pillar_labels)).filter(p =>
+    SYMS.some(s => p in c.instruments[s].pillar_weights));
   out.push(`<section>
     <h2>柱別スコア</h2>
-    <p class="note">行が通貨、列が柱。数値は6通貨平均をゼロに揃えた相対値。
-      点線の列は Phase 2 で追加予定です。</p>
+    <p class="note">行が銘柄、列が柱。銘柄ごとに使う柱が違うため、使わない柱は「—」です。
+      点線のセルはデータ蓄積中。セルの値は柱の生スコア（±100）で、ウェイトはツールチップに表示します。</p>
     <div class="card scroll-x"><table class="grid">
       <thead><tr><th class="row-h"></th>
-        ${pillars.map(p => `<th>${s.pillar_labels[p]}<br><span style="color:var(--text-muted);font-weight:400">${Math.round(s.pillar_weights[p] * 100)}%</span></th>`).join("")}
-        ${future.map(([k, l]) => `<th style="color:var(--text-muted)">${l}<br><span style="font-weight:400">${Math.round((k === "inflation" ? 0.12 : 0.15) * 100)}%</span></th>`).join("")}
+        ${pillarOrder.map(p => `<th>${c.pillar_labels[p]}</th>`).join("")}
         <th>合計</th></tr></thead>
-      <tbody>${order.map(c => {
-        const i = s.currencies[c];
-        const cells = pillars.map(p => {
+      <tbody>${order.map(s => {
+        const i = c.instruments[s];
+        const cells = pillarOrder.map(p => {
+          if (!(p in i.pillar_weights)) return '<td class="na">—</td>';
+          if (!(p in i.pillars)) return '<td class="na">蓄積中</td>';
           const v = i.pillars[p];
-          const t = `<b>${c}</b> ／ ${s.pillar_labels[p]}<br>相対スコア <b>${fmt(v)}</b>`;
+          const t = `<b>${s}</b> ／ ${c.pillar_labels[p]}<br>スコア <b>${fmt(v)}</b> × ウェイト ${Math.round(i.pillar_weights[p] * 100)}%`;
           return `<td data-tip="${encodeURIComponent(t)}" style="background:${washColor(v, 70)}">${fmt(v, 0)}</td>`;
         }).join("");
-        return `<tr><th class="row-h">${c}</th>${cells}
-          ${future.map(() => '<td class="na">Phase 2</td>').join("")}
+        return `<tr><th class="row-h">${s}</th>${cells}
           <td style="background:${washColor(i.score, maxAbs)};font-weight:600">${fmt(i.score, 0)}</td></tr>`;
       }).join("")}</tbody>
     </table></div>
   </section>`);
 
-  /* ===== 乖離パネル ===== */
+  /* ===== 需給・マクロパネル ===== */
+  const sm = data.series || {};
+  const panels = [];
+  const real = seriesTail(sm.real10y, 60);
+  if (real) panels.push({ name: "米10年実質金利", val: abs(real[real.length - 1], 2) + "%",
+    spark: sparkline(real, { w: 210, h: 44, zero: false }), legend: "実質金利上昇 = 金の逆風" });
+  const dxy = seriesTail(sm.dxy, 60);
+  if (dxy) panels.push({ name: "ドル指数 (DXY)", val: abs(dxy[dxy.length - 1], 1),
+    spark: sparkline(dxy, { w: 210, h: 44, zero: false }), legend: "ドル高 = ドル建て3銘柄の逆風" });
+  const inv = seriesTail(sm.eia_crude_stocks, 52);
+  if (inv) panels.push({ name: "EIA商業原油在庫（週次）", val: abs(inv[inv.length - 1] / 1000, 0) + "百万bbl",
+    spark: sparkline(inv.map(v => v / 1000), { w: 210, h: 44, zero: false }), legend: "積み増し = WTIの弱気材料（直近52週）" });
+  const term = seriesJoin(sm.oil, sm.wti_m2, (m1, m2) => (m1 - m2) / m1 * 100, 60);
+  if (term) panels.push({ name: "WTI ターム構造", val: fmt(term[term.length - 1], 2) + "%",
+    spark: sparkline(term, { w: 210, h: 44 }), legend: "プラス = バックワーデーション（逼迫）。蓄積中の系列です" });
+  const gs = seriesJoin(sm.gold, sm.silver, (g, s2) => g / s2, 60);
+  if (gs) panels.push({ name: "金銀比", val: abs(gs[gs.length - 1], 1),
+    spark: sparkline(gs, { w: 210, h: 44, zero: false }), legend: "高い = 銀が金対比で割安" });
+  const bw = seriesJoin(sm.brent, sm.oil, (b, w2) => b - w2, 60);
+  if (bw) panels.push({ name: "ブレント − WTI", val: fmt(bw[bw.length - 1], 2) + " USD",
+    spark: sparkline(bw, { w: 210, h: 44, zero: false }), legend: "米国内需給と輸送・在庫要因のスプレッド" });
   out.push(`<section>
-    <h2>金利差 vs 為替の乖離</h2>
-    <p class="note">直近60営業日。プラスは金利差の動き以上に為替が走っている、
-      マイナスは金利差が動いたのに為替が追随していない（出遅れ）ことを示します。
-      いずれも「ファンダと価格のどちらかが間違っている」サインなので、確信度と併せて読んでください。</p>
-    <div class="div-grid">`);
-  for (const name of Object.keys(s.pairs)) {
-    const p = s.pairs[name];
-    const d = p.divergence;
-    let verdict = "金利差と価格はおおむね整合的";
-    if (d >= 1.0) verdict = "価格が金利差より先行（走りすぎの可能性）";
-    else if (d <= -1.0) verdict = "金利差に価格が追随していない（出遅れの可能性）";
-    out.push(`<div class="div-card" data-tip="${encodeURIComponent(
-      `<b>${name}</b><br>乖離 <b>${fmt(d, 2)}</b>σ<br>金利差20日 <b>${fmt(p.rate_diff_d20, 0)}</b>bp<br>為替20日 <b>${fmt(p.chg20, 2)}</b>%`)}">
-      <div class="div-head"><span class="div-name">${name}</span>
-        <span class="div-val" style="color:${Math.abs(d) < 1 ? "var(--text-secondary)" : (d > 0 ? "var(--pos)" : "var(--neg)")}">${fmt(d, 2)}σ</span></div>
-      ${sparkline(recent(p.divergence_series), { w: 210, h: 44 })}
-      <div class="div-legend">金利差 ${fmt(p.rate_diff_d20, 0)}bp ／ 為替 ${fmt(p.chg20, 2)}%（20日）</div>
-      <div class="div-verdict">${verdict}</div>
-    </div>`);
-  }
-  out.push(`</div></section>`);
-
-  /* ===== Claude の注記と注目イベント ===== */
-  if (narrative) {
-    const notes = CCY.filter(c => narrative.currencies && narrative.currencies[c])
-      .map(c => ({ c, ...narrative.currencies[c] }));
-    const watch = (narrative.watch || []);
-    const today = new Date(s.as_of);
-    out.push(`<section>
-      <h2>Claude の注記と注目イベント</h2>
-      <p class="note">機械スコアが数値化できない材料（中銀のスタンス、要人発言、政治イベント）を Claude が補います。
-        ${narrative.as_of} 時点。機械スコアは毎営業日更新されるので、更新日がずれることがあります。</p>
-      <div class="card">
-        <div class="notes">${notes.map(n => `<div class="note-row">
-          <span class="nk">${n.c}${n.view !== "neutral" ? `<span class="cmark ${n.view}">${n.view === "up" ? "▲" : "▼"}</span>` : ""}</span>
-          <span class="nv">${n.note}</span></div>`).join("")}</div>
-        ${watch.length ? `<div style="margin-top:18px">
-          <div class="hero-label" style="margin-bottom:4px">今後の注目イベント</div>
-          ${watch.map(w => {
-            const d = new Date(w.date);
-            const past = d < today;
-            return `<div class="watch-row" style="${past ? "opacity:.5" : ""}">
-              <span class="wd">${w.date}</span><span class="wc">${w.ccy}</span>
-              <span class="we"><b>${w.event}</b>${w.note ? ` <span>— ${w.note}</span>` : ""}</span></div>`;
-          }).join("")}</div>` : ""}
-      </div>
-    </section>`);
-  }
+    <h2>需給・マクロパネル</h2>
+    <p class="note">スコアの素材になっている生データ。直近60営業日（在庫は52週）。</p>
+    <div class="div-grid">${panels.map(p => `<div class="div-card">
+      <div class="div-head"><span class="div-name">${p.name}</span><span class="div-val">${p.val}</span></div>
+      ${p.spark}
+      <div class="div-legend">${p.legend}</div>
+    </div>`).join("")}</div>
+  </section>`);
 
   /* ===== データ鮮度 ===== */
-  const srcs = Object.entries(data.sources || {});
+  const RELEVANT = ["gold", "silver", "oil", "brent", "wti_m2", "eia_crude_stocks",
+                    "real10y", "breakeven5y", "dxy", "copper", "china", "vix", "hy_oas", "eq_USD"];
+  const srcs = RELEVANT.filter(k => (data.sources || {})[k]).map(k => [k, data.sources[k]]);
   const bad = srcs.filter(([, v]) => !v.ok).length;
   const stale = srcs.filter(([, v]) => v.ok && v.stale).length;
   out.push(`<section>
     <h2>データ鮮度</h2>
-    <p class="note">${srcs.length}ソース中、取得失敗 ${bad} ／ 鮮度低下 ${stale}。
+    <p class="note">このページが使う${srcs.length}ソース中、取得失敗 ${bad} ／ 鮮度低下 ${stale}。
       取得に失敗したソースは前回値を保持して計算を継続します。
       <button class="ghost" data-toggle="tbl-src" type="button" style="margin-left:6px">一覧を見る</button></p>
     <div class="hidden scroll-x" id="tbl-src"><table class="data">
@@ -615,7 +594,6 @@ function render(data, narrative) {
 
   $("#app").innerHTML = out.join("");
 
-  /* ツールチップと表トグルを配線 */
   document.querySelectorAll("[data-tip]").forEach(el =>
     bindTip(el, decodeURIComponent(el.getAttribute("data-tip"))));
   document.querySelectorAll("[data-toggle]").forEach(btn =>
@@ -626,7 +604,7 @@ function render(data, narrative) {
     }));
 }
 
-/* --- テーマ切替 --- */
+/* --- テーマ切替（localStorage キーは FX ページと共有） --- */
 (function theme() {
   const KEY = "fx-strength-theme";
   const saved = localStorage.getItem(KEY);
@@ -647,12 +625,7 @@ function render(data, narrative) {
     const res = await fetch("data.json?t=" + Date.now());
     if (!res.ok) throw new Error(`data.json を取得できません (HTTP ${res.status})`);
     const data = await res.json();
-    let narrative = null;
-    try {
-      const nr = await fetch("narrative.json?t=" + Date.now());
-      if (nr.ok) narrative = await nr.json();
-    } catch (_) { /* Phase 3 まで存在しなくてよい */ }
-    render(data, narrative);
+    render(data);
   } catch (err) {
     $("#app").innerHTML = `<p class="loading err">${err.message}</p>
       <p class="loading">ローカルで見る場合は <code>python serve.py</code> を実行してください。</p>`;

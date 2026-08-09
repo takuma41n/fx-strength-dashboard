@@ -33,10 +33,19 @@ jobs:
       - name: Compute scores
         run: python -u score.py --quiet
 
+      - name: Compute commodity scores
+        # コモディティ側の失敗で FX の日次更新を止めない
+        continue-on-error: true
+        run: python -u score_commodities.py --quiet
+
       - name: Report backtest
         # 失敗させたくはないが、的中率の推移はログに残しておきたい
         continue-on-error: true
         run: python -u score.py --backtest
+
+      - name: Report commodity backtest
+        continue-on-error: true
+        run: python -u score_commodities.py --backtest
 
       - name: Commit
         run: |
