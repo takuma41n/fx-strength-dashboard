@@ -60,6 +60,13 @@ def build_specs(previous_series: dict) -> list:
         # --- 参考 ---
         _spec("breakeven5y", "期待インフレ5年 (FRED)", lambda: sources.fetch_fred("T5YIE")),
         _spec("dxy", "ドル指数 (Yahoo)", lambda: sources.fetch_yahoo("DX-Y.NYB")),
+        # --- コモディティ（commodities.html の素材。FXスコアには一切入らない） ---
+        _spec("silver", "銀 (Yahoo)", lambda: sources.fetch_yahoo("SI=F")),
+        _spec("real10y", "米10年実質金利 (FRED DFII10)", lambda: sources.fetch_fred("DFII10")),
+        _spec("brent", "ブレント原油 (Yahoo)", lambda: sources.fetch_yahoo("BZ=F")),
+        _spec("wti_m2", "WTI 2番限 (Yahoo)", sources.fetch_wti_second_month),
+        _spec("eia_crude_stocks", "米商業原油在庫 (EIA週次)",
+              sources.fetch_eia_crude_stocks, cadence="weekly"),
     ]
 
     for pair, ticker in config.FX_TICKERS.items():
