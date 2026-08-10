@@ -81,6 +81,46 @@ Phase 1 は実装済み73%を1.0に正規化して ±100 スケールを保つ�
   代わりに `zirepo` の SARON を使っている。デュレーションが短いぶん金利感応度が低く出る
 - **BOE と財務省の当月ファイルは当月分しか返さない。** `data.json` 自体を履歴キャッシュとして
   扱い、毎日マージして育てる設計にしている
+- **EIA の週次在庫は、APIキーが要るのは api.eia.gov v2 のほう。** データブラウザの
+  `LeafHandler.ashx?n=PET&s=WCESTUS1&f=W` はキーレスで全履歴HTMLを返す。
+  `.xls` 版（hist_xls / ir.eia.gov）は旧BIFF形式で openpyxl では開けない。
+  FRED に EIA 在庫のミラーは存在しない（価格系列のみ）
+- **Yahoo は WTI の限月（CLV26.NYM 等）を個別に配信しており、CL=F の終値は期近限月と
+  完全一致する。** これを利用して期近を同定し、その次の限月を2番限として取る。
+  満期後3ヶ月ほどで過去限月の配信は消えるため、履歴は `data.json` に縫い合わせて蓄積する。
+  `fetch_wti_second_month` が末尾5点しか返さないのは、全履歴を返すと限月交代のたびに
+  ロール系列が上書きで壊れるため
+
+## コモディティページ（`commodities.html`）
+
+ゴールド・シルバー・WTI（すべてドル建て）のファンダ柱スコアと方向性バイアス。
+`score_commodities.py` が計算し、`data.json` のトップレベル `commodities` キーに書き込む
+（`scores` とは兄弟。**FX側のスコアには一切影響しない**）。
+
+FXの6通貨スコアは「閉じたバスケットの相対値」（平均が必ずゼロ）だが、コモディティは
+閉じないので**絶対評価**とし、demean しない。したがって3銘柄すべて強気もありうる。
+商品を `CURRENCIES` に足してはいけない——demean の基準が歪んで6通貨のスコア自体が壊れる。
+
+| 銘柄 | 柱（ウェイト） |
+|---|---|
+| 金 | 実質金利32%（−）／ ドル20%（−）／ リスク回避需要18%（リスクオフで+）／ 期待インフレ12%（+）／ モメンタム18% |
+| 銀 | 金連動26% ／ 工業需要（銅+上海）20% ／ 実質金利16%（−）／ ドル14%（−）／ モメンタム16% ／ 金銀比8%（平均回帰） |
+| WTI | EIA在庫28%（積み増しで−）／ ターム構造24%（バックワーデーションで+）／ 世界需要20% ／ モメンタム16% ／ ドル12%（−） |
+
+設計判断のメモ:
+
+- **リスクレジームから「金/銅比」を除外**した3成分で取り直している。金/銅比を金のスコアに
+  使うと「金上昇→レジーム低下→金のリスク柱上昇」の循環参照（モメンタムの二重計上）になる
+- **銀に金の合成スコアは流し込まない**（ドル・実質金利の二重計上になる）。伝達項は
+  観測可能な金価格のモメンタムだけ
+- **在庫の z は週次空間で計算**してから日次に前方補完する。日次補完後に diff を取ると壊れる。
+  Δ52週が季節性除去を兼ねる
+- **欠損柱は時点ごとにウェイトを再正規化**。ターム構造は z 化に約30営業日の蓄積が要るため、
+  蓄積中は残りの柱で算出し「実装ウェイト」としてUIに出す
+- **バイアス閾値はFXと別**（`COMMO_BIAS_MILD=40 / STRONG=50`）。バックテスト
+  （2025-01〜2026-08）で翌10営業日の的中率は ≧40 で 50.3%、≧50 で 59.2%、
+  一方 20〜30 の帯は 44%台と50%を割ったため、中立ゾーンをFXの±30より広く取った。
+  履歴が400営業日ぶんしかないため参考値。`python score_commodities.py --backtest` で再較正できる
 
 ## 使い方
 
@@ -89,9 +129,11 @@ pip install numpy openpyxl
 
 python fetch_market.py            # データ取得 → data.json
 python fetch_market.py --dry-run  # 取得可否と鮮度だけ確認（書き込まない）
-python bootstrap_history.py       # 初回のみ: BOE の全履歴を流し込む
-python score.py                   # スコア計算 → data.json
-python score.py --backtest        # 的中率の検証
+python bootstrap_history.py       # 初回のみ: BOE 全履歴と WTI 2番限の流し込み
+python score.py                   # FXスコア計算 → data.json
+python score.py --backtest        # FX的中率の検証
+python score_commodities.py       # コモディティスコア計算 → data.json
+python score_commodities.py --backtest  # コモディティ的中率の検証
 python serve.py                   # http://localhost:8000 で確認
 python serve.py --refresh         # 取得・計算してから配信
 ```
@@ -119,12 +161,14 @@ python fetch_market.py && python bootstrap_history.py && python score.py && pyth
 ## ファイル構成
 
 ```
-config.py             通貨・ペア・ティッカー・ウェイト・閾値
+config.py             通貨・ペア・コモディティ・ウェイト・閾値
 sources.py            データ取得層（ホストごとのヘッダ差異を吸収）
 fetch_market.py       全ソース取得 → data.json（失敗時は前回値を保持し stale 表示）
-bootstrap_history.py  初回のみ: BOE 全履歴の流し込み
+bootstrap_history.py  初回のみ: BOE 全履歴と WTI 2番限の流し込み
 score.py              柱別スコア → 通貨スコア → ペア方向性 ／ バックテスト
-index.html            静的ダッシュボード
+score_commodities.py  コモディティ（金・銀・WTI）の柱スコア → 方向性 ／ バックテスト
+index.html            静的ダッシュボード（FX）
+commodities.html      静的ダッシュボード（コモディティ）
 serve.py              ローカル確認用サーバ
 validate_narrative.py narrative.json の検査
 data.json             生成物（履歴キャッシュを兼ねる）

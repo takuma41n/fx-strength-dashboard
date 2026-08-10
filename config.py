@@ -157,3 +157,79 @@ STALE_THRESHOLD_DAYS = {
     "weekly": 12,
     "monthly": 45,
 }
+
+# ---------------------------------------------------------------------------
+# コモディティ（USD建て・独立スコア）
+#
+# FXの6通貨スコアは「閉じたバスケットの相対値」（平均が必ずゼロ）だが、
+# コモディティは閉じないので絶対評価とする。CURRENCIES には決して足さないこと。
+# demean の基準が歪んで6通貨のスコア自体が壊れ、バックテストで較正した
+# バイアス閾値も無効になる。
+# ---------------------------------------------------------------------------
+
+COMMODITIES = ["XAUUSD", "XAGUSD", "WTI"]
+
+# series は data.json の series キー。digits/unit は表示用。
+COMMODITY_META = {
+    "XAUUSD": {"label": "金", "series": "gold", "digits": 2, "unit": "USD/oz"},
+    "XAGUSD": {"label": "銀", "series": "silver", "digits": 3, "unit": "USD/oz"},
+    "WTI": {"label": "WTI原油", "series": "oil", "digits": 2, "unit": "USD/bbl"},
+}
+
+COMMODITY_PILLAR_LABELS = {
+    "real_rate": "実質金利",
+    "usd": "ドル",
+    "risk": "リスク回避需要",
+    "inflation": "期待インフレ",
+    "momentum": "モメンタム",
+    "gold_link": "金連動",
+    "industrial": "工業需要",
+    "gs_ratio": "金銀比",
+    "inventory": "在庫",
+    "term": "ターム構造",
+    "demand": "世界需要",
+}
+
+# 銘柄ごとの柱とウェイト。
+#   金:  実質金利+ドルで0.52と、FX側の「金利40%」に相当する支配的ブロックを作る。
+#        期待インフレは real = nominal − breakeven の恒等式で実質金利と一部重複
+#        するため意図的に低め。
+#   銀:  金の合成スコアを丸ごと流し込むと（ドル・実質金利の）二重計上になるため、
+#        観測可能な金価格のモメンタムだけを伝達項にする。リスク柱を入れないのは
+#        銀のVIX感応度の符号が不安定なため（貴金属として買われる局面と
+#        工業金属として売られる局面が混在する）。
+#   WTI: 在庫とターム構造という現物需給の柱を主役にする。
+COMMODITY_PILLAR_WEIGHTS = {
+    "XAUUSD": {"real_rate": 0.32, "usd": 0.20, "risk": 0.18, "inflation": 0.12,
+               "momentum": 0.18},
+    "XAGUSD": {"gold_link": 0.26, "industrial": 0.20, "real_rate": 0.16, "usd": 0.14,
+               "momentum": 0.16, "gs_ratio": 0.08},
+    "WTI": {"inventory": 0.28, "term": 0.24, "demand": 0.20, "momentum": 0.16,
+            "usd": 0.12},
+}
+
+# ウェイト合計が1でないと ±100 スケールが崩れる。設定ミスは起動時に落とす。
+for _sym, _w in COMMODITY_PILLAR_WEIGHTS.items():
+    assert abs(sum(_w.values()) - 1.0) < 1e-9, f"{_sym} のウェイト合計が1ではない"
+
+# 自己モメンタムのサブウェイト。コモディティの5日騰落はノイズと短期反転が
+# 支配的で、時系列モメンタムが立つのは20〜60日なので金利Δ(45/30/25)とは変える。
+MOMENTUM_SUB_WEIGHTS = {"d5": 0.25, "d20": 0.40, "d60": 0.35}
+
+# EIA在庫のサブウェイト（週次空間で計算する）。Δ52週は季節性除去を兼ねる。
+INVENTORY_SUB_WEIGHTS = {"w1": 0.35, "w4": 0.35, "w52": 0.30}
+
+# 在庫z のルックバック（週次点数 = 2年）
+INVENTORY_Z_LOOKBACK = 104
+
+# コモディティのバイアス閾値。
+# FXの 50/30 は「2通貨のスコア差」（実効±200レンジ）で較正した値なので流用できない。
+#
+# 閾値ラダーの実測（2025-01〜2026-08、python score_commodities.py --backtest）:
+#   閾値なし → 翌10日 48.4%   >=20 → 44.1%   >=30 → 44.8%
+#   >=40 → 50.3%   >=50 → 59.2%（71件）
+# 弱〜中程度のシグナルは50%を割る（逆効果）ため、FX側と同じ考え方で
+# 中立ゾーンを広く取り、単調増加が始まる 40/50 に設定した。
+# ただし履歴が400営業日しかなく件数も少ないため参考値。データが溜まったら再較正する。
+COMMO_BIAS_STRONG = 50
+COMMO_BIAS_MILD = 40

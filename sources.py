@@ -108,6 +108,97 @@ def fetch_yahoo(ticker: str, range_: str = "2y") -> dict:
 
 
 # ---------------------------------------------------------------------------
+# WTI 2番限 — Yahoo は限月コード（CLV26.NYM 等）を個別に配信している
+# ---------------------------------------------------------------------------
+
+# 先物の限月コード（1月=F 〜 12月=Z）
+FUTURES_MONTH_CODES = "FGHJKMNQUVXZ"
+
+
+def _cl_ticker(year: int, month: int) -> str:
+    return f"CL{FUTURES_MONTH_CODES[month - 1]}{year % 100:02d}.NYM"
+
+
+def fetch_wti_second_month(recent: int = 5) -> dict:
+    """期近(CL=F)の次の限月の終値を返す。
+
+    Yahoo は CL=F を「その時の期近」として配信しており、実測で CL=F の終値は
+    期近限月（例: CLU26.NYM）と完全一致する。そこで翌月以降の限月を順に叩き、
+    CL=F と一致したものを期近と同定し、その次に取れた限月を2番限とする。
+    限月コードから機械的に決めると限月交代日（受渡月前月25日の3営業日前）の
+    祝日判定が必要になるが、同定方式なら交代日を知らなくても自己修復する。
+
+    末尾 recent 日分しか返さないのが肝。fetch_market.py の merge_series は
+    dict.update なので、全履歴を返すと限月交代のたびに過去の2番限価格が
+    新しい限月の履歴で上書きされ、ロール系列（継ぎ接ぎの2番限系列）が壊れる。
+    """
+    front = fetch_yahoo("CL=F", range_="1mo")
+    front_last_date = max(front)
+    front_last = front[front_last_date]
+    today = dt.date.today()
+
+    passed_front = False
+    for k in range(1, 8):
+        year = today.year + (today.month - 1 + k) // 12
+        month = (today.month - 1 + k) % 12 + 1
+        try:
+            cand = fetch_yahoo(_cl_ticker(year, month), range_="1mo")
+        except FetchError:
+            continue
+        finally:
+            time.sleep(1.0)  # Yahoo のレート制限に余裕を持たせる
+        cand_last_date = max(cand)
+        # 配信が5日以上前で止まっている限月は満期切れとみなしてスキップ
+        gap = (dt.date.fromisoformat(front_last_date)
+               - dt.date.fromisoformat(cand_last_date)).days
+        if gap > 5:
+            continue
+        if not passed_front:
+            if abs(cand[cand_last_date] - front_last) <= 0.005:
+                passed_front = True
+            continue
+        # 期近の次に取れた有効な限月 = 2番限
+        keys = sorted(cand)[-recent:]
+        return {d: cand[d] for d in keys}
+    raise FetchError("WTI 2番限: CL=F と一致する期近限月を同定できない")
+
+
+def fetch_wti_m2_history(months_back: int = 20) -> dict:
+    """過去の各限月から「2番限だった期間」だけを切り出して縫い合わせる。
+
+    bootstrap_history.py からのみ呼ぶ（一度きり）。受渡月 D の限月が
+    2番限なのはおおむね「(D-3)月の20日 〜 (D-2)月の20日」
+    （限月交代は受渡月前月25日の3営業日前ごろ）。境界の1〜2日のずれは
+    z-score に実質影響しない。満期済み限月を Yahoo が配信していない場合は
+    その月だけ欠けるが、z の計算はできる。
+    """
+    def _day20(year: int, month: int, delta_months: int) -> str:
+        y = year + (month - 1 + delta_months) // 12
+        m = (month - 1 + delta_months) % 12 + 1
+        return dt.date(y, m, 20).isoformat()
+
+    today = dt.date.today()
+    out = {}
+    for k in range(-months_back, 3):
+        year = today.year + (today.month - 1 + k) // 12
+        month = (today.month - 1 + k) % 12 + 1
+        lo = _day20(year, month, -3)
+        hi = _day20(year, month, -2)
+        try:
+            cand = fetch_yahoo(_cl_ticker(year, month), range_="2y")
+        except FetchError:
+            continue
+        finally:
+            time.sleep(1.0)
+        for d, v in cand.items():
+            if lo <= d < hi:
+                out[d] = v
+    if not out:
+        raise FetchError("WTI 2番限履歴: 有効値が0件")
+    return out
+
+
+# ---------------------------------------------------------------------------
 # FRED — APIキー不要の fredgraph.csv を使う
 # ---------------------------------------------------------------------------
 
@@ -218,6 +309,61 @@ def fetch_mof_jgb(tenor: str = "2年", include_history: bool = True) -> dict:
     out.update(_parse_mof_csv(http_get(MOF_BASE + "jgbcm.csv", timeout=60), tenor))
     if not out:
         raise FetchError("MOF JGB: 有効値が0件")
+    return out
+
+
+# ---------------------------------------------------------------------------
+# EIA — 米商業原油在庫（週次、千バレル）
+#   APIキーが要るのは api.eia.gov v2 のほう。データブラウザの LeafHandler は
+#   キーレスで全履歴のHTMLを返すので、そちらを正規表現で読む。
+#   .xls 版（hist_xls / ir.eia.gov）は旧BIFF形式で openpyxl では開けない。
+# ---------------------------------------------------------------------------
+
+EIA_LEAF = ("https://www.eia.gov/dnav/pet/hist/LeafHandler.ashx"
+            "?n=PET&s=WCESTUS1&f=W")
+_EIA_MONTHS = {m: i + 1 for i, m in enumerate(
+    ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"])}
+_EIA_ROW_HEAD = re.compile(r"(\d{4})-([A-Z][a-z]{2})")
+_EIA_OBS = re.compile(r"(\d{2})/(\d{2})\s+([\d,]+(?:\.\d+)?)")
+
+
+def fetch_eia_crude_stocks() -> dict:
+    """行が「1982-Aug  08/20 338,764  08/27 336,138 …」の形のHTML表を読む。
+
+    観測日は月/日しか持たないため年は行ラベルから取るが、週の区切りが
+    月を跨ぐと隣の月（年末は隣の年）の日付が同じ行に載る。月の差が
+    6を超えたら年を±1して補正する。
+    """
+    raw = http_get(EIA_LEAF, timeout=90)
+    text = raw.decode("utf-8", errors="replace")
+    out = {}
+    for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", text, flags=re.S | re.I):
+        plain = re.sub(r"<[^>]+>", " ", tr).replace("&nbsp;", " ")
+        plain = re.sub(r"\s+", " ", plain).strip()
+        head = _EIA_ROW_HEAD.match(plain)
+        if not head:
+            continue
+        row_year = int(head.group(1))
+        row_month = _EIA_MONTHS.get(head.group(2))
+        if row_month is None:
+            continue
+        for mm, dd, val in _EIA_OBS.findall(plain, head.end()):
+            month, day = int(mm), int(dd)
+            year = row_year
+            if month - row_month > 6:
+                year -= 1
+            elif row_month - month > 6:
+                year += 1
+            value = _f(val)
+            if value is None:
+                continue
+            try:
+                out[dt.date(year, month, day).isoformat()] = value
+            except ValueError:
+                continue
+    if not out:
+        raise FetchError("EIA WCESTUS1: 有効値が0件（HTML構造が変わった可能性）")
     return out
 
 
