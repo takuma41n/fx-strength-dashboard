@@ -150,13 +150,16 @@ python fetch_market.py && python bootstrap_history.py && python score.py && pyth
 
 ## 自動更新
 
-`.github/workflows/update-data.yml` が平日 06:10 UTC（日本時間 15:10）に実行され、
+`.github/workflows/update-data.yml` が平日 04:40 UTC（日本時間 13:40）設定で実行され、
 `data.json` を更新してコミットする。GitHub Pages で配信すればそのまま反映される。
+GitHub の schedule は混雑により**実発火が設定時刻から 1.5〜4 時間遅れるのが常態**
+（2026-08 実測）なので、実際の着地は概ね 15〜17 時 JST。急ぐ場合は Actions タブから
+workflow_dispatch で手動実行すれば1分程度で反映される。
 
 「Claude の見立て」（`narrative.json`）は claude.ai のクラウド routine
-「FXダッシュボード narrative 毎日更新」が平日 06:40 UTC（日本時間 15:40、データ更新の
-30分後）に `/fx-brief` の手順で再生成してコミットする。Anthropic API キーは不要で、
-管理（停止・時刻変更・手動実行）は https://claude.ai/code/routines から。
+「FXダッシュボード narrative 毎日更新」が平日 07:40 UTC（日本時間 16:40、データ更新が
+遅延込みで着地した後）に `/fx-brief` の手順で再生成してコミットする。Anthropic API
+キーは不要で、管理（停止・時刻変更・手動実行）は https://claude.ai/code/routines から。
 
 ## ファイル構成
 
@@ -199,7 +202,7 @@ python validate_narrative.py
 `view` は**機械スコアとの差分**を表すので、機械と同意見の通貨は `neutral` が正しい
 （`validate_narrative.py` が全通貨に補正が付いている場合に警告を出す）。
 
-実行は平日 15:40 JST にクラウド routine が自動で行う（「自動更新」の項を参照）。
+実行は平日 16:40 JST にクラウド routine が自動で行う（「自動更新」の項を参照）。
 注目イベントの日付が日々消化されていくため、材料が乏しい日でも watch の鮮度維持に意味がある。
 FOMC・日銀会合の直後などは、任意のタイミングで `/fx-brief` を手で叩いて上書きしてもよい。
 機械スコアとナラティブの更新日がずれた場合は、ダッシュボードに警告色で明示される。
@@ -211,7 +214,7 @@ FOMC・日銀会合の直後などは、任意のタイミングで `/fx-brief` 
   [us-econ-dashboard](https://takuma41n.github.io/us-econ-dashboard/) のロジックを流用
 - **Phase 3**: CFTC COT のポジションオーバーレイ（投機筋が極端に傾いていたら逆張り警告）
 - `/fx-brief` の自動化は、GitHub Actions（要 Anthropic API キー・従量課金）ではなく
-  claude.ai のクラウド routine で実現した（2026-08-07 から平日 15:40 JST に毎日実行）
+  claude.ai のクラウド routine で実現した（2026-08-07 から平日に毎日実行、16:40 JST）
 
 ## 免責
 
