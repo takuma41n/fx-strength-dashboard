@@ -22,7 +22,7 @@ import sources
 from fetch_market import DATA_PATH, dict_to_series, load_previous, series_to_dict
 
 JOBS = [
-    ("gbp2y", "英2年スポット（全履歴）", lambda: sources.fetch_boe_2y_history()),
+    ("gbp10y", "英10年スポット（全履歴）", lambda: sources.fetch_boe_history(10.0)),
     ("wti_m2", "WTI 2番限（過去限月の縫い合わせ）", lambda: sources.fetch_wti_m2_history()),
 ]
 

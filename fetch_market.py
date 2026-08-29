@@ -32,18 +32,39 @@ def build_specs(previous_series: dict) -> list:
     """取得対象の一覧。MOF の全履歴のように重いものは、蓄積が足りない
     ときだけ取りに行く。"""
 
-    def jgb():
-        have = len(previous_series.get("jpy2y", {}).get("values", []))
-        return sources.fetch_mof_jgb("2年", include_history=have < config.KEEP_DAYS)
+    def jgb(tenor: str, key: str):
+        have = len(previous_series.get(key, {}).get("values", []))
+        return sources.fetch_mof_jgb(tenor, include_history=have < config.KEEP_DAYS)
+
+    def chf10y():
+        # 日次JSONは252営業日のローリング窓しか返さない。蓄積が足りないうちだけ、
+        # 停止済みキューブ(5.5MB)から2025-07-31までの過去分を継ぎ足す。
+        have = len(previous_series.get("chf10y", {}).get("values", []))
+        daily = sources.fetch_snb_public_rate("r10")
+        if have < config.KEEP_DAYS:
+            daily = {**sources.fetch_snb_bond_history("10J0"), **daily}
+        return daily
 
     specs = [
-        # --- 金利（柱①の素材） ---
-        _spec("us2y", "米2年国債 (FRED DGS2)", lambda: sources.fetch_fred("DGS2"), required=True),
-        _spec("eur2y", "ユーロ圏2年AAA (ECB)", sources.fetch_ecb_2y, required=True),
-        _spec("jpy2y", "日本2年国債 (財務省)", jgb, required=True),
-        _spec("gbp2y", "英2年スポット (BOE)", sources.fetch_boe_2y_current, required=True),
-        _spec("aud2y", "豪2年国債 (RBA)", sources.fetch_rba_2y, required=True),
-        _spec("chf6m", "SARON 6ヶ月 (SNB)", sources.fetch_snb_saron, required=True),
+        # --- 金利（柱①の素材）: 全通貨10年で統一 ---
+        _spec("us10y", "米10年国債 (FRED DGS10)",
+              lambda: sources.fetch_fred("DGS10"), required=True),
+        _spec("eur10y", "ユーロ圏10年AAA (ECB)",
+              lambda: sources.fetch_ecb_yield("10Y"), required=True),
+        _spec("jpy10y", "日本10年国債 (財務省)", lambda: jgb("10年", "jpy10y"), required=True),
+        _spec("gbp10y", "英10年スポット (BOE)",
+              lambda: sources.fetch_boe_current(10.0), required=True),
+        _spec("aud10y", "豪10年国債 (RBA)",
+              lambda: sources.fetch_rba_bond("10 year"), required=True),
+        _spec("chf10y", "スイス連邦債10年 (SNB)", chf10y, required=True),
+        # --- 旧2年系列（柱には入れない参考値）。蓄積を捨てず、後から
+        #     「2年と10年のどちらが効いたか」を測れる状態を保つため残す。 ---
+        _spec("us2y", "米2年国債 (FRED DGS2)", lambda: sources.fetch_fred("DGS2")),
+        _spec("eur2y", "ユーロ圏2年AAA (ECB)", lambda: sources.fetch_ecb_yield("2Y")),
+        _spec("jpy2y", "日本2年国債 (財務省)", lambda: jgb("2年", "jpy2y")),
+        _spec("gbp2y", "英2年スポット (BOE)", lambda: sources.fetch_boe_current(2.0)),
+        _spec("aud2y", "豪2年国債 (RBA)", lambda: sources.fetch_rba_bond("2 year")),
+        _spec("chf6m", "SARON 6ヶ月 (SNB)", sources.fetch_snb_saron),
         # --- 政策織り込みの参考値（スコアには入れない） ---
         _spec("gbp_ois1y", "英OIS 1年 (BOE)", sources.fetch_boe_ois_1y_current),
         _spec("ff_futures", "FF金利先物 (Yahoo)", lambda: sources.fetch_yahoo("ZQ=F")),

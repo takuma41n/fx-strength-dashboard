@@ -291,8 +291,9 @@ details code { font-size: 12px; background: var(--hover); padding: 1px 5px; bord
     <h3>Phase 1 の限界</h3>
     <p>現在は日次で取れる市場データのみで、全体設計のウェイトの73%を実装しています。
     インフレ（12%）と景気・雇用（15%）の柱は Phase 2 で各国の公式統計APIから追加します。
-    CHF だけは2年国債の無料日次ソースが全滅していたため SARON 6ヶ月（短期金利）で代用しており、
-    他通貨よりも金利感応度が低く出ます。</p>
+    金利の柱は全通貨とも10年国債利回りで揃えています。もとは2年（政策期待を代表する年限）でしたが、
+    CHF だけ2年の無料日次ソースが全滅していたためです。10年は政策期待に加えてタームプレミアムも
+    含む点に注意してください。</p>
 
     <h3>免責</h3>
     <p>機械的に計算した参考値であり、投資助言ではありません。エントリーの判断は各自でお願いします。</p>
@@ -461,7 +462,7 @@ function render(data, narrative) {
     // 結果を見ている可能性があるので、鮮度を隠さない。
     const fresh = (s.rate_freshness || {})[c] || {};
     const tipHtml = `<b>${c}</b> スコア <b>${fmt(info.score)}</b><br>
-      金利・政策期待 <b>${fmt(info.pillars.rates)}</b><br>
+      金利（10年） <b>${fmt(info.pillars.rates)}</b><br>
       リスクレジーム <b>${fmt(info.pillars.risk)}</b><br>
       固有要因 <b>${fmt(info.pillars.idio)}</b>${info.idio_note ? "（" + info.idio_note + "）" : ""}<br>
       <span style="color:var(--text-muted)">${rate.label} ${abs(rate.value, 3)}%（20日 ${fmt(rate.d20, 0)}bp）</span>
@@ -481,7 +482,7 @@ function render(data, narrative) {
     </div>`);
   }
   const hasProxy = CCY.some(c => s.currencies[c].rate.proxy);
-  out.push(`</div>${hasProxy ? '<p class="note" style="margin:12px 0 0">* CHF は2年国債の無料日次ソースが全滅したため SARON 6ヶ月で代用。デュレーションが短いぶん金利感応度が低く出ます</p>' : ""}</div>
+  out.push(`</div>${hasProxy ? '<p class="note" style="margin:12px 0 0">* 代用ソースを使っている通貨です</p>' : ""}</div>
     <div class="hidden scroll-x" id="tbl-ccy"><table class="data">
       <thead><tr><th>通貨</th><th>スコア</th><th>前日比</th><th>前週比</th>
         <th>金利</th><th>リスク</th><th>固有</th><th>参照金利</th><th>20日変化</th></tr></thead>
@@ -523,7 +524,7 @@ function render(data, narrative) {
         <div class="driver" style="margin-top:5px;color:var(--text-muted)">
           <span>金利差 ${fmt(p.rate_diff, 2)}%</span><b style="color:var(--text-muted)">${fmt(p.rate_diff_d20, 0)}bp / 20日</b></div>
       </div>
-      ${p.proxy_rate ? '<div class="pair-flag">* CHF は SARON 6ヶ月で代用。金利感応度が他通貨より低く出ます</div>' : ""}
+      ${p.proxy_rate ? '<div class="pair-flag">* 代用ソースの金利を含むペアです</div>' : ""}
     </div>`);
   }
   out.push(`</div></section>`);
