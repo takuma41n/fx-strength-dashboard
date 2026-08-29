@@ -392,8 +392,14 @@ function render(data, narrative) {
 
   $("#phase-badge").textContent = `Phase ${data.phase} · 実装ウェイト ${Math.round(s.implemented_weight * 100)}%`;
   const gen = new Date(data.generated_at);
+  const rev = s.revisions;
+  // 金利系列が数日遅れて届くため、発表済みの日付のスコアが後から書き換わる。
+  // 黙って起きると「あの日の見立て」が何に対するものだったか追えなくなる。
+  const revNote = rev && rev.dates
+    ? ` ／ 発表後に改定された日 ${rev.dates}日・最大${fmt(rev.max_abs)}点`
+    : "";
   $("#header-sub").textContent =
-    `基準日 ${s.as_of} ／ データ更新 ${gen.toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" })}`;
+    `基準日 ${s.as_of} ／ データ更新 ${gen.toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" })}${revNote}`;
 
   const out = [];
 
@@ -451,14 +457,19 @@ function render(data, narrative) {
     const rate = info.rate;
     const nv = narrative && narrative.currencies ? narrative.currencies[c] : null;
     const view = nv && nv.view !== "neutral" ? nv.view : null;
+    // 金利柱は重み最大。その入力が止まっている通貨は「観測ゼロで窓だけ動いた」
+    // 結果を見ている可能性があるので、鮮度を隠さない。
+    const fresh = (s.rate_freshness || {})[c] || {};
     const tipHtml = `<b>${c}</b> スコア <b>${fmt(info.score)}</b><br>
       金利・政策期待 <b>${fmt(info.pillars.rates)}</b><br>
       リスクレジーム <b>${fmt(info.pillars.risk)}</b><br>
       固有要因 <b>${fmt(info.pillars.idio)}</b>${info.idio_note ? "（" + info.idio_note + "）" : ""}<br>
       <span style="color:var(--text-muted)">${rate.label} ${abs(rate.value, 3)}%（20日 ${fmt(rate.d20, 0)}bp）</span>
+      ${fresh.last_date ? `<br><span style="color:${fresh.stale ? "var(--warning)" : "var(--text-muted)"}">金利データ最終観測 ${fresh.last_date}（${fresh.stale_days}日前）${fresh.stale ? " — この通貨の金利柱は新しい観測なしで動いています" : ""}</span>` : ""}
       ${view ? `<br><br>Claude: 機械スコアより${view === "up" ? "強気" : "弱気"}<br>${nv.note}` : ""}`;
     out.push(`<div class="bar-row" data-tip="${encodeURIComponent(tipHtml)}">
       <div class="ccy">${c}${rate.proxy ? '<span style="color:var(--text-muted);font-weight:400">*</span>' : ""}${
+        fresh.stale ? `<span style="color:var(--warning);font-weight:400;font-size:11px" title="金利データが${fresh.stale_days}日更新されていません">⏱${fresh.stale_days}</span>` : ""}${
         view ? `<span class="cmark ${view}">${view === "up" ? "▲" : "▼"}</span>` : ""}</div>
       <div class="bar-track"><div class="bar-axis"></div>
         <div class="bar-fill ${side}" style="${style}background:${info.score >= 0 ? "var(--pos)" : "var(--neg)"}"></div></div>

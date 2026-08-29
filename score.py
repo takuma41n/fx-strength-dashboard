@@ -454,6 +454,22 @@ def compute(data: dict) -> dict:
     for ccy in config.CURRENCIES:
         history[ccy] = [round(nan_safe(totals[ccy][offset + i]), 1) for i in range(len(tail))]
 
+    # --- 改定の可視化 ---
+    # 金利系列は数日遅れて届くため、carry-forward した値の上を d5/d20/d60 の窓が
+    # 滑る。その結果、既に発表した日付のスコアが後から書き換わる。黙って起きると
+    # 「あの日の見立て」が何に対する見立てだったのか追えなくなるので、差分を出す。
+    snapshots = data.get("score_snapshots", {})
+    revisions = {}
+    for i, date in enumerate(tail):
+        snap = snapshots.get(date)
+        if not snap:
+            continue
+        deltas = {c: round(nan_safe(totals[c][offset + i]) - snap[c], 1)
+                  for c in config.CURRENCIES if c in snap}
+        if deltas and any(abs(v) >= 0.1 for v in deltas.values()):
+            revisions[date] = deltas
+    revised_max = max((abs(v) for d in revisions.values() for v in d.values()), default=0.0)
+
     regime_now = nan_safe(regime[last])
     if regime_now >= 0.35:
         regime_label = "リスクオン"
@@ -481,8 +497,27 @@ def compute(data: dict) -> dict:
         "currencies": currencies,
         "pairs": pairs,
         "history": history,
+        # 通貨ごとの金利系列の鮮度。金利柱は重み最大なので、ここが古い通貨の
+        # スコアは「観測ゼロで窓だけ動いた」結果である可能性がある。
+        "rate_freshness": {
+            ccy: {
+                "last_date": (data.get("sources", {})
+                              .get(config.RATE_SOURCES[ccy]["key"], {}).get("last_date")),
+                "stale_days": (data.get("sources", {})
+                               .get(config.RATE_SOURCES[ccy]["key"], {}).get("stale_days")),
+                "stale": bool((data.get("sources", {})
+                               .get(config.RATE_SOURCES[ccy]["key"], {}) or {}).get("stale")),
+            }
+            for ccy in config.CURRENCIES
+        },
+        "revisions": {"by_date": revisions, "dates": len(revisions),
+                      "max_abs": round(revised_max, 1)},
         "_internal": {"calendar": calendar, "totals": {c: totals[c].tolist() for c in config.CURRENCIES},
-                      "fx": {p: fx[p].tolist() for p in config.PAIR_NAMES}},
+                      "fx": {p: fx[p].tolist() for p in config.PAIR_NAMES},
+                      # --backtest 用。柱を個別に評価できないと、重みが直感のままになる。
+                      "pillars": {name: {c: arr[c].tolist() for c in config.CURRENCIES}
+                                  for name, arr in pillars.items()},
+                      "indices": {c: indices[c].tolist() for c in config.CURRENCIES}},
     }
 
 
@@ -490,11 +525,158 @@ def compute(data: dict) -> dict:
 # バックテスト
 # ---------------------------------------------------------------------------
 
+def forward_return(price: np.ndarray, horizon: int) -> np.ndarray:
+    """horizon 営業日先までの単純リターン。末尾 horizon 本は NaN。"""
+    fwd = np.full(len(price), np.nan)
+    if len(price) > horizon:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            fwd[:-horizon] = np.where(price[:-horizon] != 0,
+                                      price[horizon:] / price[:-horizon] - 1.0, np.nan)
+    return fwd
+
+
+def pair_hit_rate(totals: dict, fx: dict, horizon: int, threshold: float,
+                  lo: int = 0, hi: int | None = None) -> tuple[int, int]:
+    """全ペア合算の的中数と件数。lo/hi でカレンダーの窓を切る。"""
+    hits = total = 0
+    for pair, base, quote in config.PAIRS:
+        score = totals[base] - totals[quote]
+        fwd = forward_return(fx[pair], horizon)
+        mask = ~np.isnan(fwd) & ~np.isnan(score) & (np.abs(score) >= threshold)
+        mask[:lo] = False
+        if hi is not None:
+            mask[hi:] = False
+        if mask.sum():
+            hits += int((np.sign(score[mask]) == np.sign(fwd[mask])).sum())
+            total += int(mask.sum())
+    return hits, total
+
+
+def combine_weighted(pillars: dict, weights: dict) -> dict:
+    """combine() と同じ式を、任意の重みで通貨ごとに適用する。"""
+    total_w = sum(weights.values())
+    out = {}
+    for ccy in config.CURRENCIES:
+        acc = None
+        for name, w in weights.items():
+            term = np.nan_to_num(np.asarray(pillars[name][ccy], dtype=float)) * (w / total_w)
+            acc = term if acc is None else acc + term
+        out[ccy] = acc
+    return demean_across(out)
+
+
+def backtest_windows(totals: dict, fx: dict, calendar: list, horizons, recent: int = 120) -> None:
+    """全期間の平均は、直近の劣化を覆い隠す。窓を割って出す。"""
+    n = len(calendar)
+    split = max(0, n - recent)
+    print(f"\n窓別の的中率（|スコア差|>={config.BIAS_MILD}、全ペア合算）— 劣化の検知用")
+    print(f"{'窓':<22}", end="")
+    for h in horizons:
+        print(f"{'翌' + str(h) + '営業日':>14}{'件数':>8}", end="")
+    print()
+    windows = [("全期間", 0, None),
+               (f"直近{recent}営業日", split, None),
+               (f"それ以前({split}営業日)", 0, split)]
+    for label, lo, hi in windows:
+        if lo >= (hi if hi is not None else n):
+            continue
+        print(f"{label:<22}", end="")
+        for h in horizons:
+            hits, total = pair_hit_rate(totals, fx, h, config.BIAS_MILD, lo, hi)
+            pct = hits / total * 100 if total else float("nan")
+            print(f"{pct:>13.1f}%{total:>8}", end="")
+        print()
+
+    block = 60
+    h0 = horizons[0]
+    print(f"\n{block}営業日ブロックごとの推移（翌{h0}営業日、|スコア差|>={config.BIAS_MILD}）")
+    # 末尾に揃える。直近ブロックが切り落とされると、劣化の検知という目的を果たさない。
+    for start in range(n % block, n - block + 1, block):
+        hits, total = pair_hit_rate(totals, fx, h0, config.BIAS_MILD, start, start + block)
+        if not total:
+            continue
+        pct = hits / total * 100
+        bar = "#" * int(round(pct / 5))
+        print(f"  {calendar[start]} 〜 {calendar[start + block - 1]}  "
+              f"{pct:>5.1f}%  (n={total:>3})  {bar}")
+
+
+def backtest_pillars(pillars: dict, indices: dict, totals: dict, horizons=(5, 10, 20)) -> None:
+    """柱ごとの予測力。重みを直感で決めないための材料。"""
+    print("\n柱別の予測力 — スコアと『対バスケット超過リターン』の先行相関")
+    print("（6通貨をプールして計測。上位/下位20%は超過リターンの平均）")
+    print(f"{'柱':<14}{'重み':>6}", end="")
+    for h in horizons:
+        print(f"{'先' + str(h) + '日 相関':>12}{'上位20%':>10}{'下位20%':>10}", end="")
+    print()
+
+    series = {"総合スコア": (totals, None)}
+    for name in config.PHASE1_PILLARS:
+        series[config.PILLAR_LABELS[name]] = (pillars[name], config.PILLAR_WEIGHTS_FULL[name])
+
+    for label, (sig_map, weight) in series.items():
+        print(f"{label:<14}{('—' if weight is None else f'{weight:.2f}'):>6}", end="")
+        for h in horizons:
+            xs, ys = [], []
+            for ccy in config.CURRENCIES:
+                sig = np.asarray(sig_map[ccy], dtype=float)
+                idx = np.asarray(indices[ccy], dtype=float)
+                fwd = np.full(len(idx), np.nan)
+                if len(idx) > h:
+                    fwd[:-h] = 100.0 * (idx[h:] - idx[:-h])
+                mask = ~(np.isnan(sig) | np.isnan(fwd))
+                xs.append(sig[mask])
+                ys.append(fwd[mask])
+            x, y = np.concatenate(xs), np.concatenate(ys)
+            if len(x) < 50:
+                print(f"{'-':>12}{'-':>10}{'-':>10}", end="")
+                continue
+            corr = float(np.corrcoef(x, y)[0, 1])
+            hi = y[x >= np.percentile(x, 80)].mean()
+            lo = y[x <= np.percentile(x, 20)].mean()
+            print(f"{corr:>+12.3f}{hi:>+9.3f}%{lo:>+9.3f}%", end="")
+        print()
+    print("※ 相関の符号と重みが噛み合っていないなら、重みは測定で見直す余地があります")
+
+
+def backtest_weights(pillars: dict, fx: dict, horizons) -> None:
+    """重み感応度。ここでは重みを変更しない — 変更判断のための材料だけ出す。"""
+    current = tuple(config.PILLAR_WEIGHTS_FULL[p] for p in ("rates", "risk", "idio"))
+    candidates = [current, (0.40, 0.00, 0.08), (0.40, 0.10, 0.25),
+                  (0.33, 0.33, 0.33), (1.00, 0.00, 0.00), (0.00, 0.00, 1.00)]
+    seen, uniq = set(), []
+    for cand in candidates:
+        if cand not in seen and sum(cand) > 0:
+            seen.add(cand)
+            uniq.append(cand)
+
+    print(f"\n重み感応度（|スコア差|>={config.BIAS_MILD}、全ペア合算）— 変更はしていません")
+    print(f"{'rates/risk/idio':<20}", end="")
+    for h in horizons:
+        print(f"{'翌' + str(h) + '営業日':>14}{'件数':>8}", end="")
+    print()
+    for wr, wk, wi in uniq:
+        weights = {"rates": wr, "risk": wk, "idio": wi}
+        totals_w = combine_weighted(pillars, weights)
+        mark = "  ←現行" if (wr, wk, wi) == current else ""
+        print(f"{f'{wr:.2f}/{wk:.2f}/{wi:.2f}' + mark:<20}", end="")
+        for h in horizons:
+            hits, total = pair_hit_rate(totals_w, fx, h, config.BIAS_MILD)
+            pct = hits / total * 100 if total else float("nan")
+            print(f"{pct:>13.1f}%{total:>8}", end="")
+        print()
+    print("※ 件数が重みごとに変わるのは、閾値を超えるシグナル数が変わるためです")
+    print("※ 差が数pt程度なら、この標本では優劣は判定できません。重みは据え置きが既定です")
+
+
 def backtest(result: dict, horizons=(5, 10)) -> None:
     internal = result["_internal"]
     calendar = internal["calendar"]
     totals = {c: np.array(v) for c, v in internal["totals"].items()}
     fx = {p: np.array(v) for p, v in internal["fx"].items()}
+    pillars = {name: {c: np.array(v) for c, v in arrs.items()}
+               for name, arrs in internal.get("pillars", {}).items()}
+    indices = {c: np.array(v) for c, v in internal.get("indices", {}).items()}
 
     print(f"バックテスト  期間: {calendar[0]} 〜 {calendar[-1]}  ({len(calendar)}営業日)\n")
     print(f"{'ペア':<10}", end="")
@@ -561,14 +743,59 @@ def backtest(result: dict, horizons=(5, 10)) -> None:
 
     print(f"\n※ 上表は |スコア差| < {config.BIAS_MILD} の中立ゾーンを判定から除外しています")
     print("※ 的中率がスコアの強さと単調に上がることが、中立ゾーンを広く取る根拠です")
-    print("※ 日次サンプルは重複が大きく（10日保有なら実質独立は約1/10）、")
-    print("   高閾値の的中率は件数が少ないため統計的に有意とまでは言えません。参考値として扱ってください")
+
+    backtest_windows(totals, fx, calendar, horizons)
+    if pillars and indices:
+        backtest_pillars(pillars, indices, totals)
+        backtest_weights(pillars, fx, horizons)
+
+    print("\n※ 日次サンプルは重複が大きく（10日保有なら実質独立は約1/10）、")
+    print("   件数の少ない行は統計的に有意とまでは言えません。参考値として扱ってください")
+
+
+def backfill_snapshots(existing: dict) -> dict:
+    """git 履歴の data.json から『発表時スコア』を復元する。
+
+    改定の可視化は本来この先の分から積み上がるが、履歴に発表当時の data.json が
+    そのまま残っているので、過去分はそこから取れる。同じ日付が複数回出てくる場合は
+    最も古いコミット（＝最初に発表した値）を採用する。
+    """
+    import subprocess
+
+    try:
+        out = subprocess.run(["git", "log", "--format=%H", "--", "data.json"],
+                             cwd=HERE, capture_output=True, text=True, check=True)
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        print(f"git 履歴を読めませんでした: {exc}", file=sys.stderr)
+        return existing
+
+    snapshots = dict(existing)
+    added = 0
+    for sha in reversed(out.stdout.split()):  # 古い順。最初の発表値を優先する
+        try:
+            blob = subprocess.run(["git", "show", f"{sha}:data.json"],
+                                  cwd=HERE, capture_output=True, text=True, check=True)
+            scores = json.loads(blob.stdout).get("scores", {})
+        except (subprocess.CalledProcessError, json.JSONDecodeError, MemoryError):
+            continue
+        as_of = scores.get("as_of")
+        currencies = scores.get("currencies") or {}
+        if not as_of or as_of in snapshots:
+            continue
+        snap = {c: currencies[c]["score"] for c in config.CURRENCIES if c in currencies}
+        if len(snap) == len(config.CURRENCIES):
+            snapshots[as_of] = snap
+            added += 1
+    print(f"発表時スコアを {added} 日分 git 履歴から復元しました（計 {len(snapshots)} 日）")
+    return snapshots
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="通貨スコアとペア方向性を計算する")
     parser.add_argument("--backtest", action="store_true",
                         help="スコア符号 vs 翌5/10営業日リターンの的中率を表示")
+    parser.add_argument("--backfill-snapshots", action="store_true",
+                        help="git 履歴から発表時スコアを復元して data.json に保存する")
     parser.add_argument("--quiet", action="store_true", help="サマリを表示しない")
     args = parser.parse_args()
 
@@ -577,6 +804,9 @@ def main() -> int:
         return 1
 
     data = load_data()
+    if args.backfill_snapshots:
+        data["score_snapshots"] = backfill_snapshots(data.get("score_snapshots", {}))
+
     result = compute(data)
 
     if args.backtest:
@@ -602,6 +832,16 @@ def main() -> int:
     scores = dict(result)
     scores.pop("_internal", None)
     payload["scores"] = scores
+
+    # 発表時スコアを残す。同じ日付は最初の1回だけ記録し、後から上書きしない。
+    # これが無いと「発表後に何点動いたか」を誰も検証できない。
+    snapshots = dict(data.get("score_snapshots", {}))
+    snapshots.setdefault(result["as_of"],
+                         {c: result["currencies"][c]["score"] for c in config.CURRENCIES})
+    for old_date in sorted(snapshots)[:-200]:
+        snapshots.pop(old_date)
+    payload["score_snapshots"] = snapshots
+
     with open(DATA_PATH, "w", encoding="utf-8") as fh:
         json.dump(payload, fh, ensure_ascii=False, separators=(",", ":"))
     print(f"\ndata.json にスコアを書き込みました")
