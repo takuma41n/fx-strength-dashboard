@@ -225,15 +225,16 @@ def fetch_fred(series_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# ECB Data Portal — ユーロ圏2年AAAスポットレート（日次）
+# ECB Data Portal — ユーロ圏AAAスポットレート（日次）
 # ---------------------------------------------------------------------------
 
-ECB_2Y_KEY = "YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_2Y"
+ECB_YC_KEY = "YC/B.U2.EUR.4F.G_N_A.SV_C_YM.SR_{tenor}"
 
 
-def fetch_ecb_2y(observations: int = 600) -> dict:
+def fetch_ecb_yield(tenor: str = "2Y", observations: int = 600) -> dict:
+    """tenor は ECB の年限コード（2Y / 10Y など）。"""
     url = (
-        f"https://data-api.ecb.europa.eu/service/data/{ECB_2Y_KEY}"
+        f"https://data-api.ecb.europa.eu/service/data/{ECB_YC_KEY.format(tenor=tenor)}"
         f"?lastNObservations={observations}&format=csvdata&detail=dataonly"
     )
     raw = http_get(url, timeout=60)
@@ -245,7 +246,7 @@ def fetch_ecb_2y(observations: int = 600) -> dict:
         if date and val is not None:
             out[date] = val
     if not out:
-        raise FetchError("ECB 2Y: 有効値が0件")
+        raise FetchError(f"ECB {tenor}: 有効値が0件")
     return out
 
 
@@ -457,16 +458,16 @@ def _boe_from_zip(zip_bytes: bytes, name_filter: str, tenor: float) -> dict:
     return merged
 
 
-def fetch_boe_2y_current() -> dict:
+def fetch_boe_current(tenor: float = 2.0) -> dict:
     """当月分のみ（日次CI用・軽量）。履歴は data.json の蓄積とマージする。"""
     raw = http_get(BOE_BASE + "latest-yield-curve-data.zip", timeout=120)
-    return _boe_from_zip(raw, "nominal", 2.0)
+    return _boe_from_zip(raw, "nominal", tenor)
 
 
-def fetch_boe_2y_history() -> dict:
+def fetch_boe_history(tenor: float = 2.0) -> dict:
     """全履歴（約39MB）。bootstrap_history.py からのみ呼ぶ。"""
     raw = http_get(BOE_BASE + "glcnominalddata.zip", timeout=600)
-    return _boe_from_zip(raw, "", 2.0)
+    return _boe_from_zip(raw, "", tenor)
 
 
 def fetch_boe_ois_1y_current() -> dict:
@@ -494,7 +495,8 @@ def _parse_rba_date(text: str):
     return None
 
 
-def fetch_rba_2y() -> dict:
+def fetch_rba_bond(tenor: str = "2 year") -> dict:
+    """tenor は F2 の見出し文字列（"2 year" / "10 year" など）。"""
     # ブラウザ相当の User-Agent を付けると 403 で弾かれる。素の urllib なら通る。
     raw = http_get(RBA_F2, timeout=90, retries=4, backoff=4.0, browser=False)
     if _looks_like_html(raw):
@@ -508,7 +510,7 @@ def fetch_rba_2y() -> dict:
     col = 1
     if title_row:
         for idx, cell in enumerate(title_row):
-            if "2 year" in (cell or "").lower():
+            if tenor.lower() in (cell or "").lower():
                 col = idx
                 break
     out = {}
@@ -522,16 +524,84 @@ def fetch_rba_2y() -> dict:
         if val is not None:
             out[date] = val
     if not out:
-        raise FetchError("RBA: 有効値が0件")
+        raise FetchError(f"RBA {tenor}: 有効値が0件")
     return out
 
 
 # ---------------------------------------------------------------------------
-# SNB — SARON（CHFは2年国債の無料日次ソースが全滅したため代替）
-#   zirepo キューブ: H0=SARON O/N, H7=3ヶ月コンパウンド, H8=6ヶ月コンパウンド
+# SNB — スイスの金利
+#
+# データポータル(data.snb.ch)の債券利回りキューブ rendoblid / rendoblim は
+# 2025-07-31 で停止したまま（PublishingDate 2025-09-01 のまま更新されない）。
+# SARON の zirepo キューブは生きているが、SNB が週次・約7日遅れでしか公開せず、
+# しかも政策金利0%下では変動がほぼ無い（5日変化の標準偏差 0.6bp。他通貨の
+# 国債利回りは 3〜10bp）ため、金利柱の素材としては使えなかった。
+#
+# 代わりに SNB 本体サイトの日次 JSON を使う。連邦債10年(r10)が前営業日まで入り、
+# 5日変化の標準偏差も 5.6bp と他通貨と同水準になる。
 # ---------------------------------------------------------------------------
 
 SNB_ZIREPO = "https://data.snb.ch/api/cube/zirepo/data/csv/en"
+SNB_PUBLIC_RATES = "https://www.snb.ch/public/rates/interestRates"
+SNB_RENDOBLID = "https://data.snb.ch/api/cube/rendoblid/data/csv/en"
+
+
+def fetch_snb_public_rate(key: str = "r10") -> dict:
+    """SNB 本体サイトの日次 JSON。
+
+    key: r10 = スイス連邦債10年利回り / sarh = SARON / snbLz = SNB政策金利
+
+    値は [[エポックミリ秒, 値], ...]。252営業日のローリング窓しか返さないので、
+    それ以前は merge_series による data.json 側の蓄積と、停止済みキューブからの
+    fetch_snb_bond_history() で埋める。
+    """
+    raw = http_get(SNB_PUBLIC_RATES, timeout=60)
+    if _looks_like_html(raw):
+        raise FetchError("SNB public rates: HTMLが返った")
+    try:
+        payload = json.loads(raw.decode("utf-8-sig", errors="replace"))
+    except json.JSONDecodeError as exc:
+        raise FetchError(f"SNB public rates: JSONとして読めない ({exc})") from exc
+
+    points = payload.get(key)
+    if not isinstance(points, list):
+        raise FetchError(f"SNB public rates: 系列{key}がない（存在するキー: {list(payload)}）")
+
+    out = {}
+    for row in points:
+        if not isinstance(row, (list, tuple)) or len(row) < 2 or row[1] is None:
+            continue
+        try:
+            date = dt.datetime.fromtimestamp(row[0] / 1000, dt.timezone.utc).date().isoformat()
+            out[date] = float(row[1])
+        except (TypeError, ValueError, OSError, OverflowError):
+            continue
+    if not out:
+        raise FetchError(f"SNB public rates: 系列{key}の有効値が0件")
+    return out
+
+
+def fetch_snb_bond_history(dimension: str = "10J0") -> dict:
+    """停止済みキューブ rendoblid から過去分（〜2025-07-31）を取る。
+
+    次元は年限コード（1J/2J/3J/5J/10J0/10J1 など）。応答が 5.5MB あるので、
+    蓄積が足りないときだけ呼ぶこと。
+    """
+    raw = http_get(SNB_RENDOBLID, timeout=180)
+    text = raw.decode("utf-8-sig", errors="replace")
+    if text.lstrip().startswith("{"):
+        raise FetchError(f"SNB rendoblid: {text[:120]}")
+    out = {}
+    for line in text.splitlines():
+        parts = [p.strip().strip('"') for p in line.split(";")]
+        if len(parts) < 3 or parts[1] != dimension:
+            continue
+        date, val = parts[0], _f(parts[2])
+        if val is not None and re.match(r"^\d{4}-\d{2}-\d{2}$", date):
+            out[date] = val
+    if not out:
+        raise FetchError(f"SNB rendoblid: 次元{dimension}の有効値が0件")
+    return out
 
 
 def fetch_snb_saron(dimension: str = "H8") -> dict:
