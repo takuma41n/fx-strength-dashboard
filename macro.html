@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>長期ファンダメンタル — ドル・ユーロ・金・銀・WTI</title>
+<style>
+/* カラートークンは index.html と揃えている（テーマ切替も localStorage キーを共有）。
+   ただしこのページはスパークライン・ツールチップ・ヒートマップを持たないので、
+   必要なCSSは既存の1/3以下で済む。 */
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #898781;
+  --border: rgba(11,11,11,0.10); --hover: rgba(11,11,11,0.04);
+  --pos: #2a78d6; --neg: #e34948; --mid: #f0efec; --track: #cde2fb;
+  --warning: #fab219;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19;
+    --text-primary: #fff; --text-secondary: #c3c2b7; --text-muted: #898781;
+    --border: rgba(255,255,255,0.10); --hover: rgba(255,255,255,0.06);
+    --pos: #3987e5; --neg: #e66767; --mid: #383835; --track: #184f95;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19;
+  --text-primary: #fff; --text-secondary: #c3c2b7; --text-muted: #898781;
+  --border: rgba(255,255,255,0.10); --hover: rgba(255,255,255,0.06);
+  --pos: #3987e5; --neg: #e66767; --mid: #383835; --track: #184f95;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--page); color: var(--text-primary);
+  font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 900px; margin: 0 auto; padding: 28px 20px 80px; }
+
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 16px; }
+h1 { font-size: 21px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+.sub { color: var(--text-secondary); font-size: 13px; margin: 4px 0 0; }
+.spacer { flex: 1 1 auto; }
+button.ghost {
+  font: inherit; font-size: 12.5px; color: var(--text-secondary); cursor: pointer;
+  background: transparent; border: 1px solid var(--border); border-radius: 7px; padding: 4px 10px;
+}
+button.ghost:hover { background: var(--hover); }
+nav.tabs { display: flex; gap: 4px; }
+nav.tabs a { font-size: 12.5px; color: var(--text-secondary); text-decoration: none;
+  padding: 3px 10px; border-radius: 7px; border: 1px solid transparent; }
+nav.tabs a:hover { background: var(--hover); }
+nav.tabs a.on { color: var(--text-primary); font-weight: 600; border-color: var(--border); }
+
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 18px 20px; margin-top: 16px;
+}
+
+/* --- 対象の見出し --- */
+.head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; }
+.name { font-size: 18px; font-weight: 600; }
+.price { font-size: 15px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.meta { font-size: 12.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* --- 方向 --- */
+.dir { display: inline-flex; align-items: center; gap: 6px; font-weight: 600;
+  padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border); font-size: 13px; }
+.dir.up { color: var(--pos); } .dir.down { color: var(--neg); }
+.dir.flat { color: var(--text-muted); }
+.nodir { font-size: 12.5px; color: var(--text-muted); margin-top: 10px; }
+
+/* --- ドライバー一覧 --- */
+.group { margin-top: 16px; }
+.group h3 { font-size: 12px; font-weight: 600; margin: 0 0 6px;
+  color: var(--text-muted); letter-spacing: .04em; }
+.row { display: grid; grid-template-columns: 9.5em 90px 4.2em 1fr;
+  align-items: center; gap: 10px; padding: 3px 0; font-size: 13.5px; }
+.row .lab { color: var(--text-primary); }
+.row .num { text-align: right; font-variant-numeric: tabular-nums;
+  color: var(--text-secondary); }
+.row .cmt { color: var(--text-muted); font-size: 12.5px; }
+.bar { height: 7px; border-radius: 4px; background: var(--mid); position: relative; }
+.bar > i { position: absolute; top: 0; bottom: 0; border-radius: 4px; }
+.bar > i.p { left: 50%; background: var(--pos); }
+.bar > i.n { right: 50%; background: var(--neg); }
+
+/* 過去のレンジの中で今どこにいるか */
+.here { height: 7px; border-radius: 4px; background: var(--mid); position: relative; }
+.here > b { position: absolute; top: -2px; width: 2px; height: 11px;
+  background: var(--text-primary); border-radius: 1px; }
+
+.explained { margin-top: 14px; font-size: 12.5px; color: var(--text-secondary); }
+.explained b { font-weight: 600; }
+
+details { margin-top: 28px; border-top: 1px solid var(--border); padding-top: 14px; }
+summary { cursor: pointer; font-size: 13px; color: var(--text-secondary); }
+details .body { font-size: 13px; color: var(--text-secondary); max-width: 62em; }
+details h4 { font-size: 13.5px; margin: 16px 0 4px; color: var(--text-primary); }
+.loading { color: var(--text-muted); padding: 40px 0; text-align: center; }
+@media (max-width: 620px) {
+  .row { grid-template-columns: 8em 60px 3.6em 1fr; font-size: 13px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>長期ファンダメンタル</h1>
+  <nav class="tabs"><a href="macro.html" class="on">長期</a><a href="./">FX(日次)</a><a href="commodities.html">コモディティ</a></nav>
+  <span class="spacer"></span>
+  <button class="ghost" id="theme-btn" type="button">テーマ切替</button>
+</header>
+<p class="sub" id="header-sub">読み込み中…</p>
+
+<div id="app"><p class="loading">macro.json を読み込んでいます…</p></div>
+
+<details>
+  <summary>この画面の読み方</summary>
+  <div class="body">
+    <h4>何を見ているか</h4>
+    <p>ドル・ユーロ・ゴールド・シルバー・WTI の5つについて、その値動きを
+    <em>いま何が説明しているか</em>を出しています。固定の重みは持ちません。
+    ドライバーの効き方を毎回ローリング窓で測り直し、関係が変わればそう表示します。</p>
+
+    <h4>なぜ固定の重みを持たないか</h4>
+    <p>設計時に決めた重みで押し通すと、関係が変わったときに気づけないためです。
+    たとえば金と米10年実質金利の相関は、2019〜21年に −0.77 まで効いていたのが
+    2024年11月に +0.05、2026年2月に +0.09 まで消え、2026年8月には −0.61 に戻っています。
+    壊れて終わりではなく往復します。過去23年の平均に当てはめたモデルは、
+    この2年間ずっと外し続けたことになります。</p>
+
+    <h4>「方向」を出す対象と出さない対象がある理由</h4>
+    <p>ここに出ている相関は<strong>同時の関係</strong>で、「今の値動きが何で説明されるか」を
+    意味します。<strong>2〜3ヶ月先を当てられるか</strong>は別問題なので、別に検定しています。
+    13週おきの非重複標本のみを使い、前半と後半で符号が一致し、t値が2以上であることを求めます。</p>
+    <p>その結果、<strong>WTIの平均回帰だけが検定を通りました</strong>
+    （t=−2.7 / 標本160 / 前半−0.27・後半−0.19）。ドル・ユーロ・金・銀については、
+    外部ドライバーも自身のモメンタムも割高割安も、60通り以上を試して<strong>ひとつも通りませんでした</strong>。
+    そのため、これらには方向を出しません。為替が中期の時間軸でマクロ変数から予測できないのは
+    40年以上再現されている結果で、今回それを追認した形です。
+    嘘の矢印を並べるより、判断材料をそのまま出すほうが役に立つと考えています。</p>
+
+    <h4>「頑健」の意味</h4>
+    <p>変化を測る期間と窓の長さを5通り（4週×104週 / 1週×52週 / 4週×52週 /
+    13週×156週 / 13週×104週）に変えて、符号が一度も反転しないものだけを採用しています。
+    測り方で符号が変わるドライバーは「参考外」に置いています。
+    たとえばドルの「リスク回避」は週次で測ると +0.52 で最大のドライバーに見えますが、
+    13週で測ると −0.08 に消えるため使いません。</p>
+
+    <h4>短期の値動きは出しません</h4>
+    <p>前日比・日次チャート・確信度バーの類は載せていません。時間軸が2〜3ヶ月だからです。
+    状態が変わったと判断するには連続8週（約2ヶ月）を要求しており、その週だけの揺れで
+    表示は変わりません。更新は週1回です。</p>
+
+    <h4>免責</h4>
+    <p>機械的に計算した参考値であり、投資助言ではありません。</p>
+  </div>
+</details>
+
+</div>
+
+<script>
+"use strict";
+
+const $ = (s) => document.querySelector(s);
+const pct = (v) => (v === null || v === undefined) ? "—" : Math.round(v * 100) + "%";
+const signed = (v, d = 2) => (v === null || v === undefined) ? "—"
+  : (v >= 0 ? "+" : "") + Number(v).toFixed(d);
+
+/* 相関の強さを中央ゼロの棒で出す。1.0で半幅いっぱい。 */
+function bar(v) {
+  if (v === null || v === undefined) return `<div class="bar"></div>`;
+  const w = Math.min(50, Math.abs(v) * 50);
+  const cls = v >= 0 ? "p" : "n";
+  return `<div class="bar"><i class="${cls}" style="width:${w.toFixed(1)}%"></i></div>`;
+}
+
+/* 過去3年のレンジの中で今どこか */
+function here(v) {
+  if (v === null || v === undefined) return `<div class="here"></div>`;
+  return `<div class="here"><b style="left:calc(${(v * 100).toFixed(1)}% - 1px)"></b></div>`;
+}
+
+const ACTIVE = ["安定して効いている", "新しく効き始めた"];
+const LOST = ["効かなくなった", "弱まっている"];
+
+function rows(list, withSince) {
+  return list.map((d) => {
+    const note = withSince && d.since ? `${d.since} から`
+      : `過去 ${signed(d.hist)} ／ 一貫性 ${pct(d.consistency)}`;
+    return `<div class="row">
+      <span class="lab">${d.label}</span>
+      ${bar(d.corr)}
+      <span class="num">${signed(d.corr)}</span>
+      <span class="cmt">${note}</span>
+    </div>`;
+  }).join("");
+}
+
+function render(data) {
+  $("#header-sub").textContent =
+    `基準週 ${data.as_of} ／ 次回更新 ${data.next_update} ／ 週1回更新`
+    + ` ／ 変化は${data.params.horizon_weeks}週で測定・${data.params.window_weeks}週窓`;
+
+  const out = [];
+  for (const t of Object.values(data.targets)) {
+    const robust = t.drivers.filter((d) => d.robust);
+    const active = robust.filter((d) => ACTIVE.includes(d.state));
+    const lost = robust.filter((d) => LOST.includes(d.state));
+    const weak = robust.filter((d) => !ACTIVE.includes(d.state) && !LOST.includes(d.state));
+    const shaky = t.drivers.filter((d) => !d.robust);
+
+    let dir;
+    if (t.direction) {
+      const cls = t.direction.bias > 0 ? "up" : (t.direction.bias < 0 ? "down" : "flat");
+      const mark = t.direction.bias > 0 ? "▲" : (t.direction.bias < 0 ? "▼" : "─");
+      dir = `<span class="dir ${cls}">${mark} ${t.direction.label}</span>`
+        + (t.direction.since ? `<span class="meta">${t.direction.since} から</span>` : "");
+    } else {
+      dir = "";
+    }
+
+    out.push(`<section class="card">
+      <div class="head">
+        <span class="name">${t.label}</span>
+        <span class="price">${t.price ?? "—"}</span>
+        <span class="meta">13週 ${signed(t.chg13w, 1)}%</span>
+        <span class="meta">3年レンジの ${pct(t.here)} 地点</span>
+        <span class="spacer"></span>
+        ${dir}
+      </div>
+      ${t.direction
+        ? `<p class="nodir">${t.direction.basis}にもとづく。${t.direction.note}</p>`
+        : `<p class="nodir">方向は出しません — 2〜3ヶ月先を当てられるドライバーが検定を通らなかったため。
+           下は「今の値動きを何が説明しているか」です。</p>`}
+
+      ${active.length ? `<div class="group"><h3>今 効いているもの</h3>${rows(active, false)}</div>` : ""}
+      ${lost.length ? `<div class="group"><h3>効かなくなったもの</h3>${rows(lost, true)}</div>` : ""}
+
+      <div class="group"><h3>各ドライバーの現在地（過去3年のレンジ内）</h3>
+        ${t.drivers.filter((d) => d.here !== null).map((d) => `<div class="row">
+          <span class="lab">${d.label}</span>
+          ${here(d.here)}
+          <span class="num">${pct(d.here)}</span>
+          <span class="cmt">${d.value ?? ""}</span>
+        </div>`).join("")}
+      </div>
+
+      <p class="explained">
+        効いているドライバーで説明できる部分 <b>${pct(t.explained)}</b>
+        ／ 説明できない部分 <b>${t.explained === null ? "—" : pct(1 - t.explained)}</b>
+        ${weak.length ? `<br>もともと弱い: ${weak.map((d) => d.label).join("、")}` : ""}
+        ${shaky.length ? `<br>測り方で符号が変わるため参考外: ${shaky.map((d) => d.label).join("、")}` : ""}
+      </p>
+    </section>`);
+  }
+  $("#app").innerHTML = out.join("");
+}
+
+/* テーマ切替。キーは既存2ページと共有する。 */
+(function () {
+  const KEY = "fx-strength-theme";
+  const saved = localStorage.getItem(KEY);
+  if (saved) document.documentElement.setAttribute("data-theme", saved);
+  $("#theme-btn").addEventListener("click", () => {
+    const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+    const now = document.documentElement.getAttribute("data-theme")
+      || (dark ? "dark" : "light");
+    const next = now === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    localStorage.setItem(KEY, next);
+  });
+})();
+
+(async function () {
+  try {
+    const res = await fetch("macro.json?t=" + Date.now());
+    if (!res.ok) throw new Error("macro.json が読めません (" + res.status + ")");
+    render(await res.json());
+  } catch (err) {
+    $("#app").innerHTML = `<p class="loading">${err.message}<br>
+      python macro.py を実行してから python serve.py で開いてください。</p>`;
+  }
+})();
+</script>
+</body>
+</html>

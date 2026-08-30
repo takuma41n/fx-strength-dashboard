@@ -77,7 +77,7 @@ TARGETS = {
             ("ff", "政策金利", "diff"),
             ("baa10y", "信用スプレッド", "diff"),
             ("vix", "リスク回避", "logret"),
-            ("cot_eur_pct", "建玉(ユーロ先物の裏)", "diff"),
+            ("cot_eur_pct", "ユーロ先物の建玉", "diff"),
             ("btc", "ドル代替(BTC)", "logret"),
         ],
     },
@@ -150,11 +150,18 @@ def load_series() -> dict:
 
 
 def weekly_grid(series: dict) -> list[str]:
-    """全系列の日付から、ISO週ごとの最終営業日を拾って週次の軸を作る。"""
+    """全系列の日付から、ISO週ごとの最終営業日を拾って週次の軸を作る。
+
+    土日は除く。BTCだけ週末も値が付くため、混ぜると週の基準日が日曜にずれて
+    「基準週」の表示が実態（金曜値）と食い違う。
+    """
     weeks: dict[tuple, str] = {}
     for values in series.values():
         for date in values:
-            iso = dt.date.fromisoformat(date).isocalendar()[:2]
+            day = dt.date.fromisoformat(date)
+            if day.weekday() >= 5:
+                continue
+            iso = day.isocalendar()[:2]
             if iso not in weeks or date > weeks[iso]:
                 weeks[iso] = date
     return [weeks[k] for k in sorted(weeks)]
@@ -502,6 +509,152 @@ def forecast_report() -> None:
         print()
 
 
+# ---------------------------------------------------------------------------
+# 画面用の macro.json を組み立てる
+#
+# 方向を断定してよいのは --forecast の検定を通った対象だけ。通っていない対象は
+# 「今効いているもの・壊れたもの・各ドライバーの現在地」だけを出す。
+# 嘘の矢印を並べるより、この形のほうが判断材料になる。
+# ---------------------------------------------------------------------------
+
+OUTPUT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "macro.json")
+
+# 測り方を変えても符号が変わらないことを確かめる組み合わせ（変化週数, 窓週数）
+ROBUST_COMBOS = [(4, 104), (1, 52), (4, 52), (13, 156), (13, 104)]
+
+# 検定（--forecast）を通ったのは WTI の平均回帰だけ。ここは測定結果であって
+# 決め打ちではないので、検定結果が変われば見直すこと。
+VALIDATED = {
+    "wti": {
+        "basis": "平均回帰",
+        "note": "上昇後・レンジ上方にあると3ヶ月先は下がりやすい"
+                "（t=-2.7 / 標本160 / 前半-0.27・後半-0.19）",
+    },
+}
+
+NEUTRAL_BAND = 0.40   # これ未満は中立に倒す
+
+
+def zscore(values: list, window: int) -> list[float | None]:
+    out: list[float | None] = []
+    for i, v in enumerate(values):
+        past = [x for x in values[max(0, i - window):i + 1] if x is not None]
+        if v is None or len(past) < 30:
+            out.append(None)
+            continue
+        mean = sum(past) / len(past)
+        var = sum((x - mean) ** 2 for x in past) / len(past)
+        out.append((v - mean) / math.sqrt(var) if var > 0 else None)
+    return out
+
+
+def mean_reversion_signal(level: list, kind: str) -> list[float | None]:
+    """検定を通った平均回帰の合成。正なら上向き、負なら下向き。"""
+    mom = zscore(changes(level, kind, 26), PCT_LOOKBACK)
+    val = pct_rank(level, PCT_LOOKBACK)
+    out: list[float | None] = []
+    for m, v in zip(mom, val):
+        if m is None or v is None:
+            out.append(None)
+        else:
+            # どちらも「高いほど先行きは下」なので符号を反転して平均する
+            out.append(-(m + (v - 0.5) * 2) / 2)
+    return out
+
+
+def bucket(value: float) -> int:
+    return 0 if abs(value) < NEUTRAL_BAND else (1 if value > 0 else -1)
+
+
+def build() -> dict:
+    series = load_series()
+    grid = weekly_grid(series)
+    base = analyse()
+
+    # 測り方を変えた結果を集め、符号が一致するドライバーだけ信用する
+    variants = {c: analyse(c[1], c[0]) for c in ROBUST_COMBOS if c != ROBUST_COMBOS[0]}
+
+    as_of = grid[-1]
+    next_update = (dt.date.fromisoformat(as_of)
+                   + dt.timedelta(days=(7 - dt.date.fromisoformat(as_of).weekday()) % 7 or 7))
+
+    targets = {}
+    for name, spec in TARGETS.items():
+        level = on_grid(series[spec["series"]], grid)
+        pct3y = pct_rank(level, PCT_LOOKBACK)
+        drivers = []
+
+        for i, info in enumerate(base[name]["drivers"]):
+            signs = [info["current"] >= 0] if info["current"] is not None else []
+            for combo in variants:
+                other = variants[combo][name]["drivers"][i]["current"]
+                if other is not None:
+                    signs.append(other >= 0)
+            robust = len(set(signs)) <= 1 and len(signs) == len(ROBUST_COMBOS)
+
+            drv = spec["drivers"][i]
+            raw = drv[3](series) if len(drv) > 3 else series.get(drv[0])
+            dlevel = on_grid(raw, grid) if raw else []
+            here = pct_rank(dlevel, PCT_LOOKBACK)[-1] if dlevel else None
+
+            drivers.append({
+                "label": info["label"],
+                "state": info["state"],
+                "corr": round(info["current"], 2) if info["current"] is not None else None,
+                "hist": round(info["hist_median"], 2) if info.get("hist_median") is not None else None,
+                "consistency": round(info.get("consistency") or 0, 2),
+                "since": info.get("since"),
+                "robust": robust,
+                "value": round(dlevel[-1], 3) if dlevel and dlevel[-1] is not None else None,
+                "here": round(here, 2) if here is not None else None,
+            })
+
+        direction = None
+        if name in VALIDATED:
+            sig = mean_reversion_signal(level, spec["kind"])
+            valid = [(i, v) for i, v in enumerate(sig) if v is not None]
+            if valid:
+                buckets = [bucket(v) for _, v in valid]
+                # 方向にも持続性を要求する。当週の揺れで向きを変えない
+                stable = debounce([b >= 0 for b in buckets], PERSIST)
+                now = buckets[-1]
+                since = None
+                for pos in range(len(stable) - 1, -1, -1):
+                    if stable[pos] != stable[-1]:
+                        since = grid[valid[pos + 1][0]]
+                        break
+                direction = {
+                    "bias": now,
+                    "label": {1: "上向き", 0: "中立", -1: "下向き"}[now],
+                    "score": round(valid[-1][1], 2),
+                    "since": since,
+                    **VALIDATED[name],
+                }
+
+        targets[name] = {
+            "label": spec["label"],
+            "price": round(level[-1], 3) if level[-1] is not None else None,
+            "chg13w": (round(changes(level, spec["kind"], 13)[-1] * 100, 1)
+                       if changes(level, spec["kind"], 13)[-1] is not None else None),
+            "here": round(pct3y[-1], 2) if pct3y[-1] is not None else None,
+            "explained": (round(base[name]["r2"], 2)
+                          if base[name]["r2"] is not None else None),
+            "direction": direction,
+            "drivers": drivers,
+        }
+
+    return {
+        "as_of": as_of,
+        "generated_at": dt.datetime.now(dt.timezone.utc)
+                          .strftime("%Y-%m-%dT%H:%M:%S+00:00"),
+        "next_update": next_update.isoformat(),
+        "params": {"horizon_weeks": HORIZON, "window_weeks": WINDOW,
+                   "forward_weeks": FWD, "persist_weeks": PERSIST},
+        "targets": targets,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sensitivity", action="store_true",
@@ -519,9 +672,12 @@ def main() -> int:
     elif args.sensitivity:
         report(analyse())
     else:
-        print("いまは --sensitivity / --split のみ。"
-              "画面用の macro.json 生成は Stage 3 で追加する。", file=sys.stderr)
-        return 1
+        data = build()
+        with open(OUTPUT_PATH, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False, separators=(",", ":"))
+        shown = sum(1 for t in data["targets"].values() if t["direction"])
+        print(f"macro.json を書き出しました（基準週 {data['as_of']} ／ "
+              f"次回更新 {data['next_update']} ／ 方向を出す対象 {shown}/5）")
     return 0
 
 
