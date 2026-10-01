@@ -1,0 +1,65 @@
+name: Update macro outlook
+
+on:
+  schedule:
+    # 日曜 20:00 UTC = 月曜 05:00 JST。金曜の米国終値は金曜 21:00 UTC に確定
+    # するので、日曜実行なら週の値が全部揃っている。GitHub の schedule は混雑で
+    # 実発火が 1.5〜4 時間遅れるのが常態（update-data.yml のコメント参照）だが、
+    # 遅れても月曜午前中には着地する。時間軸が2〜3ヶ月なので数時間のずれは問題ない。
+    - cron: "0 20 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  # 平日の update-data.yml と同じグループにして push の競合を避ける
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  macro:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install --quiet numpy openpyxl
+
+      - name: Fetch long history
+        # macro_history.json は追跡していないので毎回ここで作り直す。
+        # 全ソースが全期間を返すため再現できる。
+        run: python -u macro_history.py
+
+      - name: Build macro.json
+        run: python -u macro.py
+
+      - name: Report driver sensitivity
+        # 失敗させたくはないが、どの関係が壊れたかはログに残しておきたい
+        continue-on-error: true
+        run: python -u macro.py --sensitivity
+
+      - name: Report robustness
+        continue-on-error: true
+        run: python -u macro.py --split
+
+      - name: Report forecast test
+        # 方向を出してよい対象が増減したらここで分かる
+        continue-on-error: true
+        run: python -u macro.py --forecast
+
+      - name: Commit
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- macro.json; then
+            echo "変更なし"
+            exit 0
+          fi
+          git add macro.json
+          git commit -m "chore: update macro.json ($(date -u +%Y-%m-%d))"
+          git push

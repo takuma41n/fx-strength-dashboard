@@ -11,3 +11,9 @@ image.png
 # data.json は生成物だが履歴キャッシュを兼ねる。
 # BOE と財務省は当月分しか返さないので、これをコミットしておかないと
 # z-score に必要な過去1年分が毎回リセットされてしまう。
+
+# macro_history.json は較正専用の長期履歴（約4MB）。
+# data.json と違い全ソースが全期間を返すので毎回作り直せる（BOE や財務省のような
+# 「当月分しか返さない」ソースを含まない）。毎週コミットすると年200MB近く膨らむため
+# 追跡しない。python macro_history.py で再生成する。
+macro_history.json
